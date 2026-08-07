@@ -8,6 +8,7 @@
 extern "C" {
 #endif
 
+void membrain_init(void);
 void *membrain_alloc(size_t size, uint32_t site_id);
 void membrain_free(void *ptr);
 
