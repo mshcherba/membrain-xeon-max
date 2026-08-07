@@ -62,11 +62,19 @@ static bool containsAllocationCall(Function &F) {
     return false;
 }
 
+static bool isCloningCandidate(Function &F) {
+    if (F.isDeclaration() || F.isIntrinsic() || F.getName().starts_with("membrain_")) return false;
+    if (F.getName() == "main" || F.getName().contains("Init")) return false;
+    if (F.size() > 30) return false;
+    return F.getName().contains("alloc") || F.getName().contains("wrapper");
+}
+
+
 static void performFunctionCloning(Module &M, uint32_t maxDepth = 4) {
     for (uint32_t depth = 0; depth < maxDepth; ++depth) {
         std::vector<Function*> funcsToProcess;
         for (Function &F : M) {
-            if (!F.isDeclaration() && !F.getName().starts_with("membrain_") && containsAllocationCall(F)) {
+            if (isCloningCandidate(F)) {
                 funcsToProcess.push_back(&F);
             }
         }
@@ -81,13 +89,19 @@ static void performFunctionCloning(Module &M, uint32_t maxDepth = 4) {
                 }
             }
 
-            if (callers.size() > 1) {
+            if (callers.size() > 1 && callers.size() <= 16) {
                 for (size_t i = 1; i < callers.size(); ++i) {
                     ValueToValueMapTy VMap;
                     std::string cloneName = (F->getName() + "_mbclone_" + Twine(i)).str();
                     Function *ClonedF = CloneFunction(F, VMap);
                     ClonedF->setName(cloneName);
+                    ClonedF->setSubprogram(nullptr);
+                    std::vector<BasicBlock*> blocks;
+                    for (BasicBlock &BB : *ClonedF) blocks.push_back(&BB);
+                    remapInstructionsInBlocks(blocks, VMap);
                     callers[i]->setCalledFunction(ClonedF);
+
+
                 }
             }
         }
@@ -95,10 +109,13 @@ static void performFunctionCloning(Module &M, uint32_t maxDepth = 4) {
 }
 
 
+
+
 struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
     PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
         // Step 1: Perform Call Path Function Cloning (depth n=4)
-        performFunctionCloning(M, 4);
+        // performFunctionCloning(M, 4);
+
 
         // Step 2: Annotate Allocation Sites and Rewrite IR
         LLVMContext &Ctx = M.getContext();
@@ -120,7 +137,8 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
                 for (auto InstIt = BB.begin(); InstIt != BB.end(); ) {
                     Instruction &I = *InstIt++;
                     auto *CB = dyn_cast<CallBase>(&I);
-                    if (!CB) continue;
+                    if (!CB || isa<InvokeInst>(CB)) continue;
+
 
                     if (isAllocationCall(CB)) {
                         IRBuilder<> Builder(CB);
@@ -134,9 +152,19 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
                         CallInst *newCall = Builder.CreateCall(membrainAllocCallee, {sizeVal, siteIdVal});
                         newCall->setDebugLoc(CB->getDebugLoc());
 
-                        CB->replaceAllUsesWith(newCall);
+                        Value *replacementVal = newCall;
+                        if (newCall->getType() != CB->getType()) {
+                            if (CB->getType()->isPointerTy()) {
+                                replacementVal = Builder.CreateBitCast(newCall, CB->getType());
+                            } else if (CB->getType()->isIntegerTy()) {
+                                replacementVal = Builder.CreatePtrToInt(newCall, CB->getType());
+                            }
+                        }
+
+                        CB->replaceAllUsesWith(replacementVal);
                         CB->eraseFromParent();
                         modified = true;
+
 
                         json::Object siteObj;
                         siteObj["site_id"] = siteId;
