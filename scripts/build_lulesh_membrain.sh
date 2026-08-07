@@ -9,7 +9,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-LULESH_DIR="/users/maksym/LULESH"
+LULESH_DIR="${LULESH_DIR:-$(cd "${MEMBRAIN_ROOT}/.." && pwd)/LULESH}"
+
 
 MEMBRAIN_PASS="${MEMBRAIN_ROOT}/build/llvm-pass/MemBrainPass.so"
 MEMBRAIN_RT="${MEMBRAIN_ROOT}/build/runtime/libmembrain_rt.so"
