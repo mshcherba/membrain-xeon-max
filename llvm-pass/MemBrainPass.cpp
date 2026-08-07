@@ -1,4 +1,4 @@
-// MemBrain LLVM Pass Plugin - Site ID Tagging & IR Rewriting
+// MemBrain LLVM Pass Plugin - Static Function Cloning (n=4) & IR Rewriting
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
@@ -9,6 +9,8 @@
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Transforms/Utils/ValueMapper.h"
 
 using namespace llvm;
 
@@ -45,13 +47,64 @@ static Value *getAllocationSize(CallBase *CB, IRBuilder<> &Builder, Type *sizeTy
     return CB->getArgOperand(0);
 }
 
+static bool containsAllocationCall(Function &F) {
+    for (BasicBlock &BB : F) {
+        for (Instruction &I : BB) {
+            if (auto *CB = dyn_cast<CallBase>(&I)) {
+                if (isAllocationCall(CB)) return true;
+                Value *calledOp = CB->getCalledOperand()->stripPointerCasts();
+                if (Function *CalledF = dyn_cast<Function>(calledOp)) {
+                    if (CalledF->getName().contains("_mbclone_")) return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+static void performFunctionCloning(Module &M, uint32_t maxDepth = 4) {
+    for (uint32_t depth = 0; depth < maxDepth; ++depth) {
+        std::vector<Function*> funcsToProcess;
+        for (Function &F : M) {
+            if (!F.isDeclaration() && !F.getName().starts_with("membrain_") && containsAllocationCall(F)) {
+                funcsToProcess.push_back(&F);
+            }
+        }
+
+        for (Function *F : funcsToProcess) {
+            SmallVector<CallBase*, 8> callers;
+            for (User *U : F->users()) {
+                if (auto *CB = dyn_cast<CallBase>(U)) {
+                    if (CB->getCalledOperand()->stripPointerCasts() == F) {
+                        callers.push_back(CB);
+                    }
+                }
+            }
+
+            if (callers.size() > 1) {
+                for (size_t i = 1; i < callers.size(); ++i) {
+                    ValueToValueMapTy VMap;
+                    std::string cloneName = (F->getName() + "_mbclone_" + Twine(i)).str();
+                    Function *ClonedF = CloneFunction(F, VMap);
+                    ClonedF->setName(cloneName);
+                    callers[i]->setCalledFunction(ClonedF);
+                }
+            }
+        }
+    }
+}
+
+
 struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
     PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
+        // Step 1: Perform Call Path Function Cloning (depth n=4)
+        performFunctionCloning(M, 4);
+
+        // Step 2: Annotate Allocation Sites and Rewrite IR
         LLVMContext &Ctx = M.getContext();
         uint32_t siteId = 1;
         bool modified = false;
 
-        // Function prototype for membrain_alloc(size_t size, uint32_t site_id)
         Type *sizeTy = Type::getInt64Ty(Ctx);
         Type *int32Ty = Type::getInt32Ty(Ctx);
         Type *ptrTy = PointerType::getUnqual(Ctx);
@@ -81,12 +134,10 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
                         CallInst *newCall = Builder.CreateCall(membrainAllocCallee, {sizeVal, siteIdVal});
                         newCall->setDebugLoc(CB->getDebugLoc());
 
-                        // Replace uses of original allocation with newCall
                         CB->replaceAllUsesWith(newCall);
                         CB->eraseFromParent();
                         modified = true;
 
-                        // Metadata recording
                         json::Object siteObj;
                         siteObj["site_id"] = siteId;
                         siteObj["function"] = F.getName().str();
@@ -113,7 +164,6 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
                 os << formatv("{0:2}", json::Value(std::move(siteArray)));
             }
         }
-
 
         return modified ? PreservedAnalyses::none() : PreservedAnalyses::all();
     }
