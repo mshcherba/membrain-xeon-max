@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(UMF umf)
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(UMF umf)
+endif()
+
 
 add_library(membrain_rt SHARED membrain_rt.cpp)
 

@@ -1,5 +1,5 @@
 #include "membrain_rt.h"
-#include <stdlib.h>
+#include <cstdlib>
 
 extern "C" {
 
