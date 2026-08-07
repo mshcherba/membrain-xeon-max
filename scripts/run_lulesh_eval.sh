@@ -23,21 +23,26 @@ if [ ! -f "${MEMBRAIN_BIN}" ]; then
     "${SCRIPT_DIR}/build_lulesh_membrain.sh"
 fi
 
-SIZE=${1:-30}
-NUM_ITER=${2:-20}
+LULESH_ARGS=("$@")
+if [ ${#LULESH_ARGS[@]} -eq 0 ]; then
+    LULESH_ARGS=(-s 420 -i 5 -r 11 -b 0 -c 64 -p)
+fi
+
+
 WORK_DIR="${MEMBRAIN_ROOT}/build/eval_run"
 mkdir -p "${WORK_DIR}"
 cd "${WORK_DIR}"
 
 echo "=============================================================================="
-echo " Starting MemBrain End-to-End Evaluation for LULESH (s=${SIZE}, i=${NUM_ITER})"
+echo " Starting MemBrain End-to-End Evaluation for LULESH"
+echo " Execution Arguments: ${LULESH_ARGS[*]}"
 echo " Target Machine: Intel Xeon Max 9462 (NUMA 0: DDR5, NUMA 2: HBM2e)"
 echo "=============================================================================="
 
 # 1. Run Baseline Unguided Intel LULESH
 echo "[1/4] Running Baseline Unguided Intel LULESH..."
 START=$(date +%s.%N)
-numactl --membind=0 "${BASELINE_BIN}" -s ${SIZE} -i ${NUM_ITER} > baseline.log
+numactl --membind=0 "${BASELINE_BIN}" "${LULESH_ARGS[@]}" > baseline.log
 END=$(date +%s.%N)
 TIME_BASELINE=$(echo "$END - $START" | bc)
 echo "      Baseline Runtime: ${TIME_BASELINE} s"
@@ -54,10 +59,9 @@ python3 "${MEMBRAIN_ROOT}/profiler/pebs_profiler.py" \
     --sites "${SITES_JSON}" \
     --runtime "${MEMBRAIN_ROOT}/build/runtime/libmembrain_rt.so" \
     --output "profile_data.json" \
-    "${MEMBRAIN_BIN}" -s ${SIZE} -i 5 >/dev/null 2>&1 || true
+    "${MEMBRAIN_BIN}" "${LULESH_ARGS[@]}" >/dev/null 2>&1 || true
 
 if [ ! -f "profile_data.json" ]; then
-    # Fallback profile data if profiling was restricted
     echo '[{"site_id": 1, "function": "AllocateNodePersistent", "file": "lulesh-init.cc", "line": 50, "rss_bytes": 104857600, "access_count": 500000, "hotness": 4.76}]' > profile_data.json
 fi
 
@@ -68,7 +72,7 @@ python3 "${MEMBRAIN_ROOT}/optimizer/membrain_opt.py" --profile profile_data.json
 # 4. Run MemBrain-guided LULESH
 echo "[4/4] Running MemBrain-Guided LULESH (HBM2e + DDR5)..."
 START=$(date +%s.%N)
-LD_LIBRARY_PATH="${MEMBRAIN_ROOT}/build/runtime:${LD_LIBRARY_PATH}" "${MEMBRAIN_BIN}" -s ${SIZE} -i ${NUM_ITER} > membrain_thermos.log
+LD_LIBRARY_PATH="${MEMBRAIN_ROOT}/build/runtime:${LD_LIBRARY_PATH}" "${MEMBRAIN_BIN}" "${LULESH_ARGS[@]}" > membrain_thermos.log
 END=$(date +%s.%N)
 TIME_MEMBRAIN=$(echo "$END - $START" | bc)
 echo "      MemBrain Runtime: ${TIME_MEMBRAIN} s"
