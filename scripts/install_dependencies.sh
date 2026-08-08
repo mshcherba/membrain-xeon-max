@@ -1,0 +1,35 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check if Intel oneAPI compiler is already installed
+if command -v icpx >/dev/null 2>&1 || [ -f /opt/intel/oneapi/setvars.sh ]; then
+    echo "[INFO] Intel oneAPI compiler is already installed."
+    exit 0
+fi
+
+if [ "$EUID" -ne 0 ]; then
+    echo "[ERROR] Intel oneAPI installation requires root privileges."
+    echo "Usage: sudo $0"
+    exit 1
+fi
+
+echo "[INFO] Installing build dependencies and Intel oneAPI compiler..."
+
+apt-get update
+apt-get install -y wget gpg cmake build-essential g++-14 git
+
+# Add Intel APT repository
+if [ ! -f /usr/share/keyrings/oneapi-archive-keyring.gpg ]; then
+    wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
+fi
+
+if [ ! -f /etc/apt/sources.list.d/oneAPI.list ]; then
+    echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | tee /etc/apt/sources.list.d/oneAPI.list
+fi
+
+apt-get update
+apt-get install -y intel-oneapi-compiler-dpcpp-cpp
+
+echo "[SUCCESS] Dependencies and Intel oneAPI compiler installed successfully."
