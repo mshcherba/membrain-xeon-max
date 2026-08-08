@@ -18,8 +18,25 @@ static std::atomic<uint64_t> g_hbmAllocations{0};
 static std::atomic<uint64_t> g_ddrAllocations{0};
 
 static bool g_verbose = false;
+static bool g_trace = false;
 static std::once_flag g_initFlag;
 static std::unordered_map<uint32_t, int> g_siteTierMap; // site_id -> NUMA node (0: DDR5, 2: HBM2e)
+static std::ofstream g_traceFile;
+static std::mutex g_traceMutex;
+
+void logAllocationTrace(void *ptr, size_t size, uint32_t site_id) {
+    if (!g_trace || !ptr) return;
+    std::lock_guard<std::mutex> lock(g_traceMutex);
+    if (!g_traceFile.is_open()) {
+        g_traceFile.open("alloc_trace.txt", std::ios::out | std::ios::app);
+    }
+    if (g_traceFile.is_open()) {
+        uintptr_t start = reinterpret_cast<uintptr_t>(ptr);
+        uintptr_t end = start + size;
+        g_traceFile << site_id << " " << start << " " << end << " " << size << "\n";
+        g_traceFile.flush();
+    }
+}
 
 void parseGuidanceFile() {
     std::ifstream file("site_tier_guidance.json");
@@ -49,6 +66,9 @@ void parseGuidanceFile() {
 void initRuntime() {
     if (const char *env = std::getenv("MEMBRAIN_VERBOSE")) {
         g_verbose = (env[0] == '1' || env[0] == 'y');
+    }
+    if (const char *envT = std::getenv("MEMBRAIN_TRACE")) {
+        g_trace = (envT[0] == '1' || envT[0] == 'y');
     }
 
     parseGuidanceFile();
@@ -101,6 +121,10 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
 
     int targetNode = getTargetNode(site_id);
     bindMemoryToNode(ptr, alignedSize, targetNode);
+
+    if (g_trace) {
+        logAllocationTrace(ptr, alignedSize, site_id);
+    }
 
     g_totalAllocations.fetch_add(1, std::memory_order_relaxed);
     g_totalBytesAllocated.fetch_add(size, std::memory_order_relaxed);
