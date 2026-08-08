@@ -35,8 +35,8 @@ def run_hotset_optimization(sites, hbm_capacity_bytes):
     return guidance, current_hbm_usage
 
 def run_knapsack_optimization(sites, hbm_capacity_bytes):
-    # Scale capacity and RSS bytes to MB units for DP knapsack table
-    scale_factor = 1024 * 1024
+    # Scale capacity and RSS bytes using static 4 KB page granularity
+    scale_factor = 4096 
     W = max(1, int(hbm_capacity_bytes // scale_factor))
     n = len(sites)
 
