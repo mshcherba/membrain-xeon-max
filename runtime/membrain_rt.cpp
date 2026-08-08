@@ -1,6 +1,8 @@
 #include "membrain_rt.h"
 #include <numaif.h>
+#include <unistd.h>
 #include <atomic>
+#include <cerrno>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -68,7 +70,12 @@ void bindMemoryToNode(void *ptr, size_t size, int node) {
     if (!ptr || size == 0) return;
     unsigned long nodemask = (1UL << node);
     // Bind memory range to target NUMA node using MPOL_PREFERRED policy
-    mbind(ptr, size, MPOL_PREFERRED, &nodemask, sizeof(nodemask) * 8, 0);
+    int res = mbind(ptr, size, MPOL_PREFERRED, &nodemask, sizeof(nodemask) * 8, 0);
+    if (res != 0 && g_verbose) {
+        std::cerr << "[MemBrainRT] Warning: mbind failed for ptr " << ptr
+                  << " size " << size << " on node " << node
+                  << " (errno: " << errno << ")\n";
+    }
 }
 
 } // namespace
@@ -84,11 +91,16 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
 
     if (size == 0) return nullptr;
 
-    void *ptr = std::malloc(size);
-    if (!ptr) return nullptr;
+    static const size_t pageSize = sysconf(_SC_PAGESIZE);
+    size_t alignedSize = (size + pageSize - 1) & ~(pageSize - 1);
+
+    void *ptr = nullptr;
+    if (posix_memalign(&ptr, pageSize, alignedSize) != 0) {
+        return nullptr;
+    }
 
     int targetNode = getTargetNode(site_id);
-    bindMemoryToNode(ptr, size, targetNode);
+    bindMemoryToNode(ptr, alignedSize, targetNode);
 
     g_totalAllocations.fetch_add(1, std::memory_order_relaxed);
     g_totalBytesAllocated.fetch_add(size, std::memory_order_relaxed);
@@ -100,7 +112,8 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
 
     if (g_verbose) {
         std::cout << "[MemBrainRT] Site ID " << site_id << " -> Allocated " << size
-                  << " bytes on NUMA Node " << targetNode << " ("
+                  << " bytes (aligned: " << alignedSize
+                  << " bytes) on NUMA Node " << targetNode << " ("
                   << (targetNode == 2 ? "HBM2e" : "DDR5") << ")\n";
     }
 
