@@ -1,4 +1,23 @@
 #!/bin/bash
+# ==============================================================================
+# System Environment Preparation Script for Benchmarking on Intel Xeon Max.
+#
+# Description:
+#   Configures kernel, CPU, and memory system parameters to prepare the host
+#   for reproducible and isolated benchmark evaluations:
+#     1. Disables Swapping (swapoff -a & vm.swappiness=0)
+#     2. Disables Transparent Huge Pages (THP)
+#     3. Disables automatic NUMA balancing
+#     4. Disables SMT / Hyperthreading
+#     5. Sets CPU frequency scaling governor to 'performance'
+#
+# Usage:
+#   sudo ./scripts/prepare_system.sh
+#
+# Requirements:
+#   Must be run with root privileges (sudo).
+# ==============================================================================
+
 set -e
 
 if [ "$EUID" -ne 0 ]; then

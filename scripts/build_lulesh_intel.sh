@@ -1,4 +1,20 @@
 #!/bin/bash
+# ==============================================================================
+# Script to build standard (baseline) LULESH 2.0 with Intel oneAPI Compiler.
+#
+# Description:
+#   Automatically checks for Intel oneAPI compiler (icpx/icx), clones the
+#   LULESH repository from GitHub if missing, and compiles a standalone
+#   uninstrumented binary into LULESH/build_intel/ using flags -O3 -ffast-math -xHost.
+#
+# Usage:
+#   ./scripts/build_lulesh_intel.sh
+#
+# Environment Variables:
+#   LULESH_DIR - Path to LULESH repository (Default: ../LULESH)
+#   WITH_MPI   - Set to 'On' to build with MPI (Default: Off)
+# ==============================================================================
+
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

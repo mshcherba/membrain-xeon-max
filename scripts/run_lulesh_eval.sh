@@ -1,7 +1,17 @@
 #!/bin/bash
 # ==============================================================================
-# MemBrain End-to-End Evaluation Pipeline for LULESH 2.0
-# Evaluates Baseline (Unguided) vs Hotset vs Knapsack vs Thermos on Intel Xeon Max
+# MemBrain End-to-End Evaluation Pipeline for LULESH 2.0.
+#
+# Description:
+#   Runs the complete evaluation pipeline comparing baseline unguided LULESH
+#   against MemBrain-guided optimization strategies (Thermos, Hotset, Knapsack)
+#   on Intel Xeon Max heterogeneous memory (HBM2e + DDR5).
+#
+# Usage:
+#   ./scripts/run_lulesh_eval.sh [LULESH_ARGS...]
+#
+# Environment Variables:
+#   LULESH_DIR - Path to LULESH repository (Default: ../LULESH)
 # ==============================================================================
 
 set -e

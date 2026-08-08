@@ -1,4 +1,19 @@
 #!/bin/bash
+# ==============================================================================
+# System Dependencies and Intel oneAPI Installer Script.
+#
+# Description:
+#   Installs required build utilities (cmake, build-essential, g++-14, git)
+#   and sets up the Intel APT repository to install the Intel oneAPI DPC++/C++
+#   compiler (intel-oneapi-compiler-dpcpp-cpp).
+#
+# Usage:
+#   sudo ./scripts/install_dependencies.sh
+#
+# Requirements:
+#   Must be run with root privileges (sudo).
+# ==============================================================================
+
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,4 +1,30 @@
 #!/bin/bash
+# ==============================================================================
+# Script for a single benchmark run of LULESH on Intel Xeon Max (Socket 0).
+#
+# Description:
+#   Executes a single benchmark run of baseline LULESH on Socket 0 CPU,
+#   binding memory to either DDR5 (node 0) or HBM2e (node 2).
+#
+# Usage:
+#   ./scripts/run_lulesh_single.sh [MODE] [LULESH_ARGS...]
+#
+# Modes:
+#   ddr | 0 - Binds memory to DDR5 (numactl --membind 0)
+#   hbm | 2 - Binds memory to HBM2e (numactl --membind 2)
+#
+# LULESH_ARGS:
+#   Optional CLI parameters passed to LULESH.
+#   Default: -s 420 -i 5 -r 11 -b 0 -c 64 -p
+#
+# Environment Variables:
+#   LULESH_DIR - Path to LULESH repository (Default: ../LULESH)
+#
+# Examples:
+#   ./scripts/run_lulesh_single.sh ddr
+#   ./scripts/run_lulesh_single.sh hbm -s 30 -i 5
+# ==============================================================================
+
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

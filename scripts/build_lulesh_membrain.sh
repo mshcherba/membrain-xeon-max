@@ -1,8 +1,18 @@
 #!/bin/bash
 # ==============================================================================
 # Script to build a dedicated MemBrain-instrumented binary of LULESH 2.0.
-# This build is COMPLETELY ISOLATED in build_membrain/ and does NOT touch or
-# affect standard unguided LULESH builds in build_intel/.
+#
+# Description:
+#   Builds the MemBrain LLVM pass and runtime if needed, then instruments
+#   LULESH using clang++ -fpass-plugin=MemBrainPass.so.
+#   This build is completely isolated in LULESH/build_membrain/ and does NOT
+#   touch or affect standard unguided LULESH builds in LULESH/build_intel/.
+#
+# Usage:
+#   ./scripts/build_lulesh_membrain.sh
+#
+# Environment Variables:
+#   LULESH_DIR - Path to LULESH repository (Default: ../LULESH)
 # ==============================================================================
 
 set -e
@@ -10,7 +20,6 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LULESH_DIR="${LULESH_DIR:-$(cd "${MEMBRAIN_ROOT}/.." && pwd)/LULESH}"
-
 
 MEMBRAIN_PASS="${MEMBRAIN_ROOT}/build/llvm-pass/MemBrainPass.so"
 MEMBRAIN_RT="${MEMBRAIN_ROOT}/build/runtime/libmembrain_rt.so"
