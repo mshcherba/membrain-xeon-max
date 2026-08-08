@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# Script to build standard (baseline) LULESH 2.0 with Intel oneAPI Compiler.
+# Script to build standard baseline LULESH 2.0 with Intel Compiler (icpx / icx).
 #
 # Description:
 #   Automatically checks for Intel oneAPI compiler (icpx/icx), clones the
 #   LULESH repository from GitHub if missing, and compiles a standalone
-#   uninstrumented binary into LULESH/build_intel/ using flags -O3 -ffast-math -xHost.
+#   uninstrumented binary into LULESH/build_baseline/ using flags -O3 -ffast-math -xHost.
 #
 # Usage:
-#   ./scripts/build_lulesh_intel.sh
+#   ./scripts/build_lulesh_baseline.sh
 #
 # Environment Variables:
 #   LULESH_DIR - Path to LULESH repository (Default: ../LULESH)
@@ -50,12 +50,12 @@ if [ ! -d "${LULESH_DIR}" ]; then
     git clone https://github.com/LLNL/LULESH.git "${LULESH_DIR}"
 fi
 
-BUILD_INTEL_DIR="${LULESH_DIR}/build_intel"
-echo "[INFO] Building standard LULESH with Intel oneAPI in: ${BUILD_INTEL_DIR}"
+BUILD_BASELINE_DIR="${LULESH_DIR}/build_baseline"
+echo "[INFO] Building baseline LULESH with Intel icpx in: ${BUILD_BASELINE_DIR}"
 
-rm -rf "${BUILD_INTEL_DIR}"
-mkdir -p "${BUILD_INTEL_DIR}"
-cd "${BUILD_INTEL_DIR}"
+rm -rf "${BUILD_BASELINE_DIR}"
+mkdir -p "${BUILD_BASELINE_DIR}"
+cd "${BUILD_BASELINE_DIR}"
 
 CC=icx CXX=icpx cmake "${LULESH_DIR}" \
     -DCMAKE_CXX_FLAGS="-O3 -ffast-math -xHost" \
@@ -64,9 +64,9 @@ CC=icx CXX=icpx cmake "${LULESH_DIR}" \
 
 cmake --build . -- -j$(nproc)
 
-if [ -f "${BUILD_INTEL_DIR}/lulesh2.0" ]; then
-    echo "[SUCCESS] LULESH binary successfully built at:"
-    echo "         ${BUILD_INTEL_DIR}/lulesh2.0"
+if [ -f "${BUILD_BASELINE_DIR}/lulesh2.0" ]; then
+    echo "[SUCCESS] Baseline LULESH binary successfully built at:"
+    echo "         ${BUILD_BASELINE_DIR}/lulesh2.0"
 else
     echo "[ERROR] Build failed. Binary not found."
     exit 1

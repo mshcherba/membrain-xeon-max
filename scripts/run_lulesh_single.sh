@@ -30,7 +30,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LULESH_DIR="${LULESH_DIR:-$(cd "${MEMBRAIN_ROOT}/.." && pwd)/LULESH}"
-BASELINE_BIN="${LULESH_DIR}/build_intel/lulesh2.0"
+BASELINE_BIN="${LULESH_DIR}/build_baseline/lulesh2.0"
 
 MODE="${1:-ddr}"
 shift 1 2>/dev/null || true

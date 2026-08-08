@@ -69,7 +69,7 @@ cd ..
 ```
 
 ### 2. Build MemBrain-Instrumented LULESH
-To build an isolated MemBrain-instrumented binary of LULESH 2.0 without affecting baseline unguided builds in `LULESH/build_intel/`:
+To build an isolated MemBrain-instrumented binary of LULESH 2.0 without affecting baseline unguided builds in `LULESH/build_baseline/`:
 ```bash
 ./scripts/build_lulesh_membrain.sh
 ```
