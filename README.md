@@ -68,29 +68,29 @@ make -j $(nproc)
 cd ..
 ```
 
-### 2. Build MemBrain-Instrumented LULESH
-To build an isolated MemBrain-instrumented binary of LULESH 2.0 without affecting baseline unguided builds in `LULESH/build_baseline/`:
+### 2. Build Unified LULESH Binary
+To build the unified LULESH 2.0 binary with Intel compiler and MemBrain integration in `LULESH/build/`:
 ```bash
-./scripts/build_lulesh_membrain.sh
+./scripts/build_lulesh.sh
 ```
-This generates `/users/maksym/LULESH/build_membrain/lulesh2.0_membrain` and `allocation_sites.json`.
+This generates `/users/maksym/LULESH/build/lulesh2.0`.
 
 ### 3. Profiling Allocation Sites
 Generate access frequency and bandwidth profiles:
 ```bash
 # PEBS Profiler (Access counts + Peak RSS)
 python3 profiler/pebs_profiler.py \
-    --sites LULESH/build_membrain/allocation_sites.json \
+    --sites LULESH/build/allocation_sites.json \
     --runtime build/runtime/libmembrain_rt.so \
     --output profile_data.json \
-    LULESH/build_membrain/lulesh2.0_membrain -s 10 -i 5
+    LULESH/build/lulesh2.0 -s 10 -i 5
 
 # Memory Bandwidth Isolation (MBI) Profiler
 python3 profiler/mbi_profiler.py \
-    --sites LULESH/build_membrain/allocation_sites.json \
+    --sites LULESH/build/allocation_sites.json \
     --runtime build/runtime/libmembrain_rt.so \
     --output mbi_profile_data.json \
-    LULESH/build_membrain/lulesh2.0_membrain -s 10 -i 5
+    LULESH/build/lulesh2.0 -s 10 -i 5
 ```
 
 ### 4. Running Optimization Algorithms
@@ -111,7 +111,7 @@ Execute the instrumented binary with generated placement guidance:
 ```bash
 LD_LIBRARY_PATH="$(pwd)/build/runtime:${LD_LIBRARY_PATH}" \
 MEMBRAIN_VERBOSE=1 \
-LULESH/build_membrain/lulesh2.0_membrain -s 420 -i 5 -r 11 -b 0 -c 64 -p
+LULESH/build/lulesh2.0 -s 420 -i 5 -r 11 -b 0 -c 64 -p
 ```
 
 ### 6. Automated End-to-End Evaluation Pipeline
