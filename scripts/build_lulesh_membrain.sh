@@ -29,6 +29,7 @@ COMPILER="clang++"
 BUILD_MEMBRAIN_DIR="${LULESH_DIR}/build_membrain"
 echo "[MemBrain Build] Creating isolated build directory: ${BUILD_MEMBRAIN_DIR}"
 rm -rf "${BUILD_MEMBRAIN_DIR}"
+rm -f "${MEMBRAIN_ROOT}/build/allocation_sites.json" allocation_sites.json
 mkdir -p "${BUILD_MEMBRAIN_DIR}"
 cd "${BUILD_MEMBRAIN_DIR}"
 
@@ -40,6 +41,9 @@ cmake "${LULESH_DIR}" \
     -DWITH_OPENMP=On
 
 make -j $(nproc)
+
+# Merge per-module allocation_sites_*.json into single allocation_sites.json
+python3 "${MEMBRAIN_ROOT}/scripts/merge_allocation_sites.py" --dir "${BUILD_MEMBRAIN_DIR}" --output "${BUILD_MEMBRAIN_DIR}/allocation_sites.json"
 
 if [ -f "${BUILD_MEMBRAIN_DIR}/lulesh2.0" ]; then
     mv "${BUILD_MEMBRAIN_DIR}/lulesh2.0" "${BUILD_MEMBRAIN_DIR}/lulesh2.0_membrain"

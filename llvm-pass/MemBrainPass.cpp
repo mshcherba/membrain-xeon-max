@@ -1,4 +1,4 @@
-// MemBrain LLVM Pass Plugin - Static Function Cloning (n=4) & IR Rewriting
+#include "llvm/ADT/Hashing.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
@@ -8,9 +8,11 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
+#include <cctype>
 
 using namespace llvm;
 
@@ -119,7 +121,6 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
 
         // Step 2: Annotate Allocation Sites and Rewrite IR
         LLVMContext &Ctx = M.getContext();
-        uint32_t siteId = 1;
         bool modified = false;
 
         Type *sizeTy = Type::getInt64Ty(Ctx);
@@ -128,7 +129,24 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
         FunctionType *hookTy = FunctionType::get(ptrTy, {sizeTy, int32Ty}, false);
         FunctionCallee membrainAllocCallee = M.getOrInsertFunction("membrain_alloc", hookTy);
 
-        json::Array siteArray;
+        StringRef modPath = M.getName();
+        StringRef stem = sys::path::stem(modPath);
+        std::string rawStem = (stem.empty() || stem == "-") ? "module" : stem.str();
+
+        std::string modStem;
+        for (char c : rawStem) {
+            if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-') {
+                modStem += c;
+            } else {
+                modStem += '_';
+            }
+        }
+
+        // Expanded module hash mask (0xFFFFF = 1,048,576 buckets) ensuring non-colliding site_ids
+        uint32_t moduleHash = (static_cast<uint32_t>(hash_value(modStem)) & 0xFFFFF) * 1000;
+        uint32_t siteId = moduleHash + 1;
+
+        json::Array moduleSites;
 
         for (Function &F : M) {
             if (F.isDeclaration() || F.getName().starts_with("membrain_")) continue;
@@ -177,7 +195,7 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
                             siteObj["file"] = "unknown";
                             siteObj["line"] = 0;
                         }
-                        siteArray.push_back(std::move(siteObj));
+                        moduleSites.push_back(std::move(siteObj));
 
                         siteId++;
                     }
@@ -186,10 +204,18 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
         }
 
         if (modified) {
+            SmallString<128> outPath;
+            if (const char *envDir = std::getenv("MEMBRAIN_SITES_DIR")) {
+                outPath = envDir;
+                sys::path::append(outPath, "allocation_sites_" + modStem + ".json");
+            } else {
+                outPath = "allocation_sites_" + modStem + ".json";
+            }
+
             std::error_code EC;
-            raw_fd_ostream os("allocation_sites.json", EC, sys::fs::OF_Append);
+            raw_fd_ostream os(outPath, EC, sys::fs::OF_None);
             if (!EC) {
-                os << formatv("{0:2}", json::Value(std::move(siteArray)));
+                os << formatv("{0:2}\n", json::Value(std::move(moduleSites)));
             }
         }
 
