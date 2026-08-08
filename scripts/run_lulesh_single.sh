@@ -44,6 +44,9 @@ if [ -f /opt/intel/oneapi/setvars.sh ]; then
     source /opt/intel/oneapi/setvars.sh > /dev/null 2>&1 || source /opt/intel/oneapi/setvars.sh
 fi
 
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-32}"
+export KMP_AFFINITY="${KMP_AFFINITY:-granularity=fine,compact,1,0}"
+
 case "${MODE}" in
     ddr|0)
         MEM_NODE="0"
