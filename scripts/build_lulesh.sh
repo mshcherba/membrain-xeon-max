@@ -3,18 +3,20 @@
 # Unified Build Script for LULESH 2.0 with Intel Compiler & MemBrain Integration.
 #
 # Description:
-#   Automatically sets up Intel oneAPI compiler (icpx / icx), compiles the
-#   MemBrain runtime library, clones LULESH if missing, and compiles the
-#   unified LULESH 2.0 binary into LULESH/build/lulesh2.0 using Intel compiler
-#   flags (-O3 -ffast-math -xHost) linked against libmembrain_rt.so.
-#   This single binary serves all execution modes: pure DDR5, pure HBM2e, and MemBrain.
+#   Automatically compiles the MemBrain LLVM Pass and Runtime library, clones
+#   LULESH 2.0 if missing, and executes the 2-stage build pipeline:
+#     Stage A: LLVM Pass Transformation (clang++ -emit-llvm -fpass-plugin=MemBrainPass.so)
+#              enabling call-path function cloning and malloc/free interposition.
+#     Stage B: Intel icpx Native Compilation & Linking (-O3 -ffast-math -xHost -fiopenmp)
+#              linked against libmembrain_rt.so with UMF Scalable Memory Pools.
+#   Outputs the unified MemBrain LULESH binary at LULESH/build/lulesh2.0.
 #
 # Usage:
 #   ./scripts/build_lulesh.sh
 #
 # Environment Variables:
 #   LULESH_DIR - Path to LULESH repository (Default: ../LULESH)
-#   WITH_MPI   - Set to 'On' to build with MPI (Default: Off)
+#   CLANG_CXX  - Path/binary of Clang C++ compiler (Default: clang++)
 # ==============================================================================
 
 set -e
@@ -62,22 +64,45 @@ if [ ! -d "${LULESH_DIR}" ]; then
 fi
 
 BUILD_DIR="${LULESH_DIR}/build"
-echo "[INFO] Building unified LULESH binary with Intel icpx in: ${BUILD_DIR}"
+echo "[INFO] Building LULESH with 2-Stage Pipeline (MemBrain LLVM Pass + Intel icpx)..."
 
 rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
-CC=icx CXX=icpx cmake "${LULESH_DIR}" \
-    -DCMAKE_CXX_FLAGS="-O3 -ffast-math -xHost -g -I${MEMBRAIN_ROOT}/runtime" \
-    -DCMAKE_EXE_LINKER_FLAGS="-L${MEMBRAIN_ROOT}/build/runtime -lmembrain_rt -Wl,-rpath,${MEMBRAIN_ROOT}/build/runtime" \
-    -DWITH_MPI="${WITH_MPI:-Off}" \
-    -DWITH_OPENMP=On
+CLANG_CXX="${CLANG_CXX:-clang++}"
+if ! command -v "${CLANG_CXX}" >/dev/null 2>&1; then
+    echo "[ERROR] C++ Clang compiler ('${CLANG_CXX}') not found."
+    exit 1
+fi
 
-make -j $(nproc)
+PASS_SO="${MEMBRAIN_ROOT}/build/llvm-pass/MemBrainPass.so"
+RT_DIR="${MEMBRAIN_ROOT}/build/runtime"
+INC_DIR="${MEMBRAIN_ROOT}/runtime"
+
+echo " -> Stage A: LLVM Pass Transformation & Parallel Object Compilation..."
+for src in "${LULESH_DIR}"/*.cc; do
+    [ -f "${src}" ] || continue
+    (
+        base=$(basename "${src}" .cc)
+        echo "    Processing $(basename "${src}")..."
+        "${CLANG_CXX}" -S -emit-llvm -O3 -ffast-math -g -fopenmp -DUSE_MPI=0 \
+            -fpass-plugin="${PASS_SO}" \
+            -I"${INC_DIR}" \
+            "${src}" -o "${base}_transformed.ll"
+            
+        icpx -c -O3 -ffast-math -xHost -g -fiopenmp "${base}_transformed.ll" -o "${base}.o"
+    ) &
+done
+wait
+
+echo " -> Stage B: Intel icpx Native Compilation & Linking..."
+icpx -O3 -ffast-math -xHost -g -fiopenmp *.o \
+    -L"${RT_DIR}" -lmembrain_rt -Wl,-rpath,"${RT_DIR}" \
+    -o "${BUILD_DIR}/lulesh2.0"
 
 if [ -f "${BUILD_DIR}/lulesh2.0" ]; then
-    echo "[SUCCESS] Unified LULESH binary successfully built at:"
+    echo "[SUCCESS] MemBrain LULESH binary successfully built at:"
     echo "         ${BUILD_DIR}/lulesh2.0"
 else
     echo "[ERROR] Build failed. Binary not found."

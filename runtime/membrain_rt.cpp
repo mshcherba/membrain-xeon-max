@@ -98,27 +98,35 @@ void logAllocationTrace(void *ptr, size_t size, uint32_t site_id) {
 }
 
 void parseGuidanceFile() {
-    std::ifstream file("site_tier_guidance.json");
+    const char *envPath = std::getenv("MEMBRAIN_GUIDANCE_PATH");
+    std::string path = envPath ? envPath : "site_tier_guidance.json";
+    std::ifstream file(path);
     if (!file.is_open()) {
         if (g_verbose) {
-            std::cout << "[MemBrainRT] site_tier_guidance.json not found. Defaulting all allocations to DDR5 (NUMA 0)\n";
+            std::cout << "[MemBrainRT] " << path << " not found. Defaulting all allocations to DDR5 (NUMA 0)\n";
         }
         return;
     }
 
-    std::string line;
-    while (std::getline(file, line)) {
-        size_t idPos = line.find("\"site_id\":");
-        size_t tierPos = line.find("\"tier\":");
-        if (idPos != std::string::npos && tierPos != std::string::npos) {
-            uint32_t siteId = std::stoul(line.substr(idPos + 10));
-            int tierNode = std::stoi(line.substr(tierPos + 7));
-            g_siteTierMap[siteId] = tierNode;
-        }
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    size_t pos = 0;
+    while ((pos = content.find("\"site_id\"", pos)) != std::string::npos) {
+        size_t idPos = content.find(":", pos);
+        if (idPos == std::string::npos) break;
+        uint32_t siteId = std::stoul(content.substr(idPos + 1));
+        
+        size_t tierKeyPos = content.find("\"tier\"", idPos);
+        if (tierKeyPos == std::string::npos) break;
+        size_t tierPos = content.find(":", tierKeyPos);
+        if (tierPos == std::string::npos) break;
+        int tierNode = std::stoi(content.substr(tierPos + 1));
+        
+        g_siteTierMap[siteId] = tierNode;
+        pos = tierPos + 1;
     }
 
     if (g_verbose) {
-        std::cout << "[MemBrainRT] Loaded guidance for " << g_siteTierMap.size() << " allocation sites.\n";
+        std::cout << "[MemBrainRT] Loaded guidance for " << g_siteTierMap.size() << " allocation sites from " << path << ".\n";
     }
 }
 
