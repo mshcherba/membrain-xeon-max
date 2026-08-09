@@ -98,27 +98,8 @@ void bindMemoryToNode(void *ptr, size_t size, int node) {
     }
 }
 
-} // namespace
-
-extern "C" {
-
-void membrain_init(void) {
-    std::call_once(g_initFlag, initRuntime);
-}
-
-void *membrain_alloc(size_t size, uint32_t site_id) {
-    membrain_init();
-
-    if (size == 0) return nullptr;
-
-    static const size_t pageSize = sysconf(_SC_PAGESIZE);
-    size_t alignedSize = (size + pageSize - 1) & ~(pageSize - 1);
-
-    void *ptr = nullptr;
-    if (posix_memalign(&ptr, pageSize, alignedSize) != 0) {
-        return nullptr;
-    }
-
+void trackAndBindAllocation(void *ptr, size_t size, size_t alignedSize, uint32_t site_id, const char *allocName) {
+    if (!ptr) return;
     int targetNode = getTargetNode(site_id);
     bindMemoryToNode(ptr, alignedSize, targetNode);
 
@@ -135,12 +116,39 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
     }
 
     if (g_verbose) {
-        std::cout << "[MemBrainRT] Site ID " << site_id << " -> Allocated " << size
+        std::cout << "[MemBrainRT] Site ID " << site_id << " -> " << allocName << " " << size
                   << " bytes (aligned: " << alignedSize
                   << " bytes) on NUMA Node " << targetNode << " ("
                   << (targetNode == 2 ? "HBM2e" : "DDR5") << ")\n";
     }
+}
 
+} // namespace
+
+extern "C" {
+
+void membrain_init(void) {
+    std::call_once(g_initFlag, initRuntime);
+}
+
+void *membrain_alloc(size_t size, uint32_t site_id) {
+    membrain_init();
+
+    if (size == 0) return nullptr;
+
+    static const size_t pageSize = sysconf(_SC_PAGESIZE);
+    if (size > SIZE_MAX - pageSize) {
+        return nullptr;
+    }
+
+    size_t alignedSize = (size + pageSize - 1) & ~(pageSize - 1);
+
+    void *ptr = nullptr;
+    if (posix_memalign(&ptr, pageSize, alignedSize) != 0) {
+        return nullptr;
+    }
+
+    trackAndBindAllocation(ptr, size, alignedSize, site_id, "Allocated");
     return ptr;
 }
 
@@ -148,6 +156,42 @@ void membrain_free(void *ptr) {
     if (ptr) {
         std::free(ptr);
     }
+}
+
+int membrain_posix_memalign(void **memptr, size_t alignment, size_t size, uint32_t site_id) {
+    membrain_init();
+
+    if (!memptr) return EINVAL;
+
+    if (size == 0) {
+        *memptr = nullptr;
+        return 0;
+    }
+
+    if (alignment < sizeof(void*) || (alignment & (alignment - 1)) != 0) {
+        return EINVAL;
+    }
+
+    static const size_t pageSize = sysconf(_SC_PAGESIZE);
+    size_t allocAlign = alignment < pageSize ? pageSize : alignment;
+
+    if (size > SIZE_MAX - allocAlign) {
+        return ENOMEM;
+    }
+
+    size_t alignedSize = (size + allocAlign - 1) & ~(allocAlign - 1);
+
+    void *ptr = nullptr;
+    int res = posix_memalign(&ptr, allocAlign, alignedSize);
+    if (res != 0 || !ptr) {
+        *memptr = nullptr;
+        return res;
+    }
+
+    trackAndBindAllocation(ptr, size, alignedSize, site_id, "posix_memalign");
+
+    *memptr = ptr;
+    return 0;
 }
 
 } // extern "C"

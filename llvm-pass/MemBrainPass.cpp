@@ -129,6 +129,9 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
         FunctionType *hookTy = FunctionType::get(ptrTy, {sizeTy, int32Ty}, false);
         FunctionCallee membrainAllocCallee = M.getOrInsertFunction("membrain_alloc", hookTy);
 
+        FunctionType *posixMemalignHookTy = FunctionType::get(int32Ty, {ptrTy, sizeTy, sizeTy, int32Ty}, false);
+        FunctionCallee membrainPosixMemalignCallee = M.getOrInsertFunction("membrain_posix_memalign", posixMemalignHookTy);
+
         StringRef modPath = M.getName();
         StringRef stem = sys::path::stem(modPath);
         std::string rawStem = (stem.empty() || stem == "-") ? "module" : stem.str();
@@ -160,28 +163,57 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
 
                     if (isAllocationCall(CB)) {
                         IRBuilder<> Builder(CB);
-                        Value *rawSizeVal = getAllocationSize(CB, Builder, sizeTy);
-                        Value *sizeVal = rawSizeVal;
-                        if (sizeVal->getType() != sizeTy) {
-                            sizeVal = Builder.CreateZExtOrTrunc(sizeVal, sizeTy);
-                        }
-
                         Value *siteIdVal = ConstantInt::get(int32Ty, siteId);
-                        CallInst *newCall = Builder.CreateCall(membrainAllocCallee, {sizeVal, siteIdVal});
-                        newCall->setDebugLoc(CB->getDebugLoc());
+                        CallInst *newCall = nullptr;
 
-                        Value *replacementVal = newCall;
-                        if (newCall->getType() != CB->getType()) {
-                            if (CB->getType()->isPointerTy()) {
-                                replacementVal = Builder.CreateBitCast(newCall, CB->getType());
-                            } else if (CB->getType()->isIntegerTy()) {
-                                replacementVal = Builder.CreatePtrToInt(newCall, CB->getType());
+                        Value *calledOp = CB->getCalledOperand()->stripPointerCasts();
+                        Function *CalledF = dyn_cast<Function>(calledOp);
+                        StringRef funcName = CalledF ? CalledF->getName() : "";
+
+                        if (funcName == "posix_memalign") {
+                            Value *memptrVal = CB->getArgOperand(0);
+                            Value *alignVal = CB->getArgOperand(1);
+                            Value *sizeVal = CB->getArgOperand(2);
+
+                            if (memptrVal->getType() != ptrTy) {
+                                memptrVal = Builder.CreateBitCast(memptrVal, ptrTy);
                             }
-                        }
+                            if (alignVal->getType() != sizeTy) {
+                                alignVal = Builder.CreateZExtOrTrunc(alignVal, sizeTy);
+                            }
+                            if (sizeVal->getType() != sizeTy) {
+                                sizeVal = Builder.CreateZExtOrTrunc(sizeVal, sizeTy);
+                            }
 
-                        CB->replaceAllUsesWith(replacementVal);
-                        CB->eraseFromParent();
-                        modified = true;
+                            newCall = Builder.CreateCall(membrainPosixMemalignCallee, {memptrVal, alignVal, sizeVal, siteIdVal});
+                            newCall->setDebugLoc(CB->getDebugLoc());
+
+                            CB->replaceAllUsesWith(newCall);
+                            CB->eraseFromParent();
+                            modified = true;
+                        } else {
+                            Value *rawSizeVal = getAllocationSize(CB, Builder, sizeTy);
+                            Value *sizeVal = rawSizeVal;
+                            if (sizeVal->getType() != sizeTy) {
+                                sizeVal = Builder.CreateZExtOrTrunc(sizeVal, sizeTy);
+                            }
+
+                            newCall = Builder.CreateCall(membrainAllocCallee, {sizeVal, siteIdVal});
+                            newCall->setDebugLoc(CB->getDebugLoc());
+
+                            Value *replacementVal = newCall;
+                            if (newCall->getType() != CB->getType()) {
+                                if (CB->getType()->isPointerTy()) {
+                                    replacementVal = Builder.CreateBitCast(newCall, CB->getType());
+                                } else if (CB->getType()->isIntegerTy()) {
+                                    replacementVal = Builder.CreatePtrToInt(newCall, CB->getType());
+                                }
+                            }
+
+                            CB->replaceAllUsesWith(replacementVal);
+                            CB->eraseFromParent();
+                            modified = true;
+                        }
 
 
                         json::Object siteObj;
