@@ -14,5 +14,6 @@ target_compile_definitions(MemBrainPass PRIVATE ${LLVM_DEFINITIONS})
 set_target_properties(MemBrainPass PROPERTIES
     PREFIX ""
     SUFFIX ".so"
+    LINK_FLAGS "-Wl,--unresolved-symbols=ignore-all"
 )
 

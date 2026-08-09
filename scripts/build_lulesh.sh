@@ -36,9 +36,9 @@ if ! command -v icpx >/dev/null 2>&1 && [ ! -f /opt/intel/oneapi/setvars.sh ]; t
     fi
 fi
 
-# Source Intel oneAPI environment if setvars.sh exists
-if [ -f /opt/intel/oneapi/setvars.sh ]; then
-    source /opt/intel/oneapi/setvars.sh > /dev/null 2>&1 || source /opt/intel/oneapi/setvars.sh
+# Source Intel oneAPI environment if setvars.sh exists and icpx is not yet in PATH
+if ! command -v icpx >/dev/null 2>&1 && [ -f /opt/intel/oneapi/setvars.sh ]; then
+    source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
 fi
 
 if ! command -v icpx >/dev/null 2>&1; then

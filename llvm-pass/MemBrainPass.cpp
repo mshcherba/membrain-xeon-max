@@ -49,6 +49,15 @@ static Value *getAllocationSize(CallBase *CB, IRBuilder<> &Builder, Type *sizeTy
     return CB->getArgOperand(0);
 }
 
+static bool isFreeCall(CallBase *CB) {
+    Value *calledOp = CB->getCalledOperand()->stripPointerCasts();
+    Function *F = dyn_cast<Function>(calledOp);
+    if (!F) return false;
+
+    StringRef name = F->getName();
+    return name == "free" || name == "cfree" || name.starts_with("_Zdl") || name.starts_with("_Zda");
+}
+
 static bool containsAllocationCall(Function &F) {
     for (BasicBlock &BB : F) {
         for (Instruction &I : BB) {
@@ -116,7 +125,7 @@ static void performFunctionCloning(Module &M, uint32_t maxDepth = 4) {
 struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
     PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
         // Step 1: Perform Call Path Function Cloning (depth n=4)
-        // performFunctionCloning(M, 4);
+        performFunctionCloning(M, 4);
 
 
         // Step 2: Annotate Allocation Sites and Rewrite IR
@@ -131,6 +140,9 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
 
         FunctionType *posixMemalignHookTy = FunctionType::get(int32Ty, {ptrTy, sizeTy, sizeTy, int32Ty}, false);
         FunctionCallee membrainPosixMemalignCallee = M.getOrInsertFunction("membrain_posix_memalign", posixMemalignHookTy);
+
+        FunctionType *freeHookTy = FunctionType::get(Type::getVoidTy(Ctx), {ptrTy}, false);
+        FunctionCallee membrainFreeCallee = M.getOrInsertFunction("membrain_free", freeHookTy);
 
         StringRef modPath = M.getName();
         StringRef stem = sys::path::stem(modPath);
@@ -161,7 +173,18 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
                     if (!CB || isa<InvokeInst>(CB)) continue;
 
 
-                    if (isAllocationCall(CB)) {
+                    if (isFreeCall(CB)) {
+                        IRBuilder<> Builder(CB);
+                        Value *ptrVal = CB->getArgOperand(0);
+                        if (ptrVal->getType() != ptrTy) {
+                            ptrVal = Builder.CreateBitCast(ptrVal, ptrTy);
+                        }
+                        CallInst *newCall = Builder.CreateCall(membrainFreeCallee, {ptrVal});
+                        newCall->setDebugLoc(CB->getDebugLoc());
+                        CB->replaceAllUsesWith(newCall);
+                        CB->eraseFromParent();
+                        modified = true;
+                    } else if (isAllocationCall(CB)) {
                         IRBuilder<> Builder(CB);
                         Value *siteIdVal = ConstantInt::get(int32Ty, siteId);
                         CallInst *newCall = nullptr;
