@@ -1,17 +1,14 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.28)
 
-find_package(PkgConfig QUIET)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(UMF umf)
+if(NOT DEFINED umf_DIR AND EXISTS "/opt/intel/oneapi/umf/latest/lib/cmake/umf")
+    set(umf_DIR "/opt/intel/oneapi/umf/latest/lib/cmake/umf")
 endif()
 
+find_package(umf REQUIRED)
 
 add_library(membrain_rt SHARED membrain_rt.cpp)
+target_link_libraries(membrain_rt PRIVATE umf::umf numa dl)
+target_compile_definitions(membrain_rt PRIVATE HAVE_UMF=1)
 
-if(UMF_FOUND)
-    target_include_directories(membrain_rt PRIVATE ${UMF_INCLUDE_DIRS})
-    target_link_libraries(membrain_rt PRIVATE ${UMF_LIBRARIES})
-else()
-    message(STATUS "UMF pkg-config not found, using direct fallback linkage")
-    target_link_libraries(membrain_rt PRIVATE numa dl)
-endif()
+
+

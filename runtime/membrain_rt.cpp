@@ -1,5 +1,4 @@
 #include "membrain_rt.h"
-#include <numaif.h>
 #include <unistd.h>
 #include <atomic>
 #include <cerrno>
@@ -9,6 +8,11 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+
+#include <umf/memory_pool.h>
+#include <umf/memory_provider.h>
+#include <umf/pools/pool_scalable.h>
+#include <umf/providers/provider_os_memory.h>
 
 namespace {
 
@@ -23,6 +27,61 @@ static std::once_flag g_initFlag;
 static std::unordered_map<uint32_t, int> g_siteTierMap; // site_id -> NUMA node (0: DDR5, 2: HBM2e)
 static std::ofstream g_traceFile;
 static std::mutex g_traceMutex;
+
+static umf_memory_pool_handle_t g_hbmPool = nullptr;
+static umf_memory_pool_handle_t g_ddrPool = nullptr;
+
+void initUmfPools() {
+    // 1. Initialize HBM2e OS Memory Provider (NUMA Node 2)
+    umf_os_memory_provider_params_handle_t hbmParams = nullptr;
+    if (umfOsMemoryProviderParamsCreate(&hbmParams) == UMF_RESULT_SUCCESS) {
+        unsigned hbmNodes[] = {2};
+        umfOsMemoryProviderParamsSetNumaList(hbmParams, hbmNodes, 1);
+        umfOsMemoryProviderParamsSetNumaMode(hbmParams, UMF_NUMA_MODE_PREFERRED);
+        umfOsMemoryProviderParamsSetName(hbmParams, "HBM2eProvider");
+
+        umf_memory_provider_handle_t hbmProvider = nullptr;
+        if (umfMemoryProviderCreate(umfOsMemoryProviderOps(), hbmParams, &hbmProvider) == UMF_RESULT_SUCCESS) {
+            umfPoolCreate(umfScalablePoolOps(), hbmProvider, nullptr, UMF_POOL_CREATE_FLAG_OWN_PROVIDER, &g_hbmPool);
+        }
+        umfOsMemoryProviderParamsDestroy(hbmParams);
+    }
+
+    // 2. Initialize DDR5 OS Memory Provider (NUMA Node 0)
+    umf_os_memory_provider_params_handle_t ddrParams = nullptr;
+    if (umfOsMemoryProviderParamsCreate(&ddrParams) == UMF_RESULT_SUCCESS) {
+        unsigned ddrNodes[] = {0};
+        umfOsMemoryProviderParamsSetNumaList(ddrParams, ddrNodes, 1);
+        umfOsMemoryProviderParamsSetNumaMode(ddrParams, UMF_NUMA_MODE_PREFERRED);
+        umfOsMemoryProviderParamsSetName(ddrParams, "DDR5Provider");
+
+        umf_memory_provider_handle_t ddrProvider = nullptr;
+        if (umfMemoryProviderCreate(umfOsMemoryProviderOps(), ddrParams, &ddrProvider) == UMF_RESULT_SUCCESS) {
+            umfPoolCreate(umfScalablePoolOps(), ddrProvider, nullptr, UMF_POOL_CREATE_FLAG_OWN_PROVIDER, &g_ddrPool);
+        }
+        umfOsMemoryProviderParamsDestroy(ddrParams);
+    }
+
+    if (!g_hbmPool || !g_ddrPool) {
+        std::cerr << "[MemBrainRT] FATAL: Failed to initialize UMF Scalable Memory Pools!\n";
+        std::abort();
+    }
+
+    if (g_verbose) {
+        std::cout << "[MemBrainRT] Initialized UMF Scalable Memory Pools (HBM2e Pool: OK, DDR5 Pool: OK)\n";
+    }
+}
+
+__attribute__((destructor)) static void cleanupUmfPools() {
+    if (g_hbmPool) {
+        umfPoolDestroy(g_hbmPool);
+        g_hbmPool = nullptr;
+    }
+    if (g_ddrPool) {
+        umfPoolDestroy(g_ddrPool);
+        g_ddrPool = nullptr;
+    }
+}
 
 void logAllocationTrace(void *ptr, size_t size, uint32_t site_id) {
     if (!g_trace || !ptr) return;
@@ -72,6 +131,7 @@ void initRuntime() {
     }
 
     parseGuidanceFile();
+    initUmfPools();
 
     if (g_verbose) {
         std::cout << "[MemBrainRT] Initialized for Single-Socket Xeon Max (DDR5: NUMA 0, HBM2e: NUMA 2)\n";
@@ -86,25 +146,12 @@ int getTargetNode(uint32_t site_id) {
     return 0; // Default to DDR5 (NUMA 0)
 }
 
-void bindMemoryToNode(void *ptr, size_t size, int node) {
-    if (!ptr || size == 0) return;
-    unsigned long nodemask = (1UL << node);
-    // Bind memory range to target NUMA node using MPOL_PREFERRED policy
-    int res = mbind(ptr, size, MPOL_PREFERRED, &nodemask, sizeof(nodemask) * 8, 0);
-    if (res != 0 && g_verbose) {
-        std::cerr << "[MemBrainRT] Warning: mbind failed for ptr " << ptr
-                  << " size " << size << " on node " << node
-                  << " (errno: " << errno << ")\n";
-    }
-}
-
-void trackAndBindAllocation(void *ptr, size_t size, size_t alignedSize, uint32_t site_id, const char *allocName) {
+void trackAllocation(void *ptr, size_t size, uint32_t site_id, const char *allocName) {
     if (!ptr) return;
     int targetNode = getTargetNode(site_id);
-    bindMemoryToNode(ptr, alignedSize, targetNode);
 
     if (g_trace) {
-        logAllocationTrace(ptr, alignedSize, site_id);
+        logAllocationTrace(ptr, size, site_id);
     }
 
     g_totalAllocations.fetch_add(1, std::memory_order_relaxed);
@@ -117,8 +164,7 @@ void trackAndBindAllocation(void *ptr, size_t size, size_t alignedSize, uint32_t
 
     if (g_verbose) {
         std::cout << "[MemBrainRT] Site ID " << site_id << " -> " << allocName << " " << size
-                  << " bytes (aligned: " << alignedSize
-                  << " bytes) on NUMA Node " << targetNode << " ("
+                  << " bytes on NUMA Node " << targetNode << " ("
                   << (targetNode == 2 ? "HBM2e" : "DDR5") << ")\n";
     }
 }
@@ -136,25 +182,17 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
 
     if (size == 0) return nullptr;
 
-    static const size_t pageSize = sysconf(_SC_PAGESIZE);
-    if (size > SIZE_MAX - pageSize) {
-        return nullptr;
-    }
+    int targetNode = getTargetNode(site_id);
+    umf_memory_pool_handle_t targetPool = (targetNode == 2) ? g_hbmPool : g_ddrPool;
 
-    size_t alignedSize = (size + pageSize - 1) & ~(pageSize - 1);
-
-    void *ptr = nullptr;
-    if (posix_memalign(&ptr, pageSize, alignedSize) != 0) {
-        return nullptr;
-    }
-
-    trackAndBindAllocation(ptr, size, alignedSize, site_id, "Allocated");
+    void *ptr = umfPoolMalloc(targetPool, size);
+    trackAllocation(ptr, size, site_id, "Allocated");
     return ptr;
 }
 
 void membrain_free(void *ptr) {
     if (ptr) {
-        std::free(ptr);
+        umfFree(ptr);
     }
 }
 
@@ -172,24 +210,16 @@ int membrain_posix_memalign(void **memptr, size_t alignment, size_t size, uint32
         return EINVAL;
     }
 
-    static const size_t pageSize = sysconf(_SC_PAGESIZE);
-    size_t allocAlign = alignment < pageSize ? pageSize : alignment;
+    int targetNode = getTargetNode(site_id);
+    umf_memory_pool_handle_t targetPool = (targetNode == 2) ? g_hbmPool : g_ddrPool;
 
-    if (size > SIZE_MAX - allocAlign) {
+    void *ptr = umfPoolAlignedMalloc(targetPool, size, alignment);
+    if (!ptr) {
+        *memptr = nullptr;
         return ENOMEM;
     }
 
-    size_t alignedSize = (size + allocAlign - 1) & ~(allocAlign - 1);
-
-    void *ptr = nullptr;
-    int res = posix_memalign(&ptr, allocAlign, alignedSize);
-    if (res != 0 || !ptr) {
-        *memptr = nullptr;
-        return res;
-    }
-
-    trackAndBindAllocation(ptr, size, alignedSize, site_id, "posix_memalign");
-
+    trackAllocation(ptr, size, site_id, "posix_memalign");
     *memptr = ptr;
     return 0;
 }
