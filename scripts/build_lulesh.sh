@@ -80,6 +80,8 @@ PASS_SO="${MEMBRAIN_ROOT}/build/llvm-pass/MemBrainPass.so"
 RT_DIR="${MEMBRAIN_ROOT}/build/runtime"
 INC_DIR="${MEMBRAIN_ROOT}/runtime"
 
+export MEMBRAIN_SITES_DIR="${BUILD_DIR}"
+
 echo " -> Stage A: LLVM Pass Transformation & Parallel Object Compilation..."
 for src in "${LULESH_DIR}"/*.cc; do
     [ -f "${src}" ] || continue
@@ -95,6 +97,9 @@ for src in "${LULESH_DIR}"/*.cc; do
     ) &
 done
 wait
+
+echo " -> Merging Allocation Sites Metadata into allocation_sites.json..."
+python3 "${MEMBRAIN_ROOT}/scripts/merge_allocation_sites.py" --dir "${BUILD_DIR}" --output "${BUILD_DIR}/allocation_sites.json"
 
 echo " -> Stage B: Intel icpx Native Compilation & Linking..."
 icpx -O3 -ffast-math -xHost -g -fiopenmp *.o \
