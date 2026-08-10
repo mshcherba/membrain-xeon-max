@@ -59,11 +59,26 @@ static bool isFreeCall(CallBase *CB) {
 }
 
 
+static bool containsAllocationCall(Function &F) {
+    for (BasicBlock &BB : F) {
+        for (Instruction &I : BB) {
+            if (auto *CB = dyn_cast<CallBase>(&I)) {
+                if (isAllocationCall(CB)) return true;
+                Value *calledOp = CB->getCalledOperand()->stripPointerCasts();
+                if (Function *CalledF = dyn_cast<Function>(calledOp)) {
+                    if (CalledF->getName().contains("_mbclone_")) return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 static bool isCloningCandidate(Function &F) {
     if (F.isDeclaration() || F.isIntrinsic() || F.getName().starts_with("membrain_")) return false;
     if (F.getName() == "main" || F.getName().contains("Init")) return false;
-    if (F.size() > 30) return false;
-    return F.getName().contains("alloc") || F.getName().contains("wrapper");
+    if (F.size() > 50) return false;
+    return containsAllocationCall(F);
 }
 
 
