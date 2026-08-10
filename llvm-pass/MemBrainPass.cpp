@@ -268,7 +268,10 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
 
             std::error_code EC;
             raw_fd_ostream os(outPath, EC, sys::fs::OF_None);
-            if (!EC) {
+            if (EC) {
+                errs() << "[MemBrainPass] Error writing allocation sites to '"
+                       << outPath << "': " << EC.message() << "\n";
+            } else {
                 os << formatv("{0:2}\n", json::Value(std::move(moduleSites)));
             }
         }
