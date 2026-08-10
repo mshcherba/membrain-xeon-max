@@ -75,7 +75,7 @@ python3 "${MEMBRAIN_ROOT}/optimizer/membrain_opt.py" --profile profile_data.json
 # 4. Run MemBrain-guided LULESH
 echo "[4/4] Running MemBrain-Guided LULESH (HBM2e + DDR5)..."
 START=$(date +%s.%N)
-MEMBRAIN_GUIDANCE="site_tier_guidance.json" \
+MEMBRAIN_GUIDANCE_PATH="site_tier_guidance.json" \
 LD_LIBRARY_PATH="${MEMBRAIN_ROOT}/build/runtime:${LD_LIBRARY_PATH}" \
 numactl --cpunodebind=0 "${LULESH_BIN}" "${LULESH_ARGS[@]}" > membrain_thermos.log
 END=$(date +%s.%N)
