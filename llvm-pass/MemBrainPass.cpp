@@ -181,7 +181,6 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
                         }
                         CallInst *newCall = Builder.CreateCall(membrainFreeCallee, {ptrVal});
                         newCall->setDebugLoc(CB->getDebugLoc());
-                        CB->replaceAllUsesWith(newCall);
                         CB->eraseFromParent();
                         modified = true;
                     } else if (isAllocationCall(CB)) {
