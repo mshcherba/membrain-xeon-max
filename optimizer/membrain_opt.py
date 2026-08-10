@@ -131,8 +131,7 @@ def run_thermos_optimization(sites, hbm_capacity_bytes):
 
 def save_guidance_json(guidance, output_path):
     with open(output_path, "w") as f:
-        for entry in guidance:
-            f.write(json.dumps(entry) + "\n")
+        json.dump(guidance, f, indent=2)
     print(f"[MemBrain Optimizer] Guidance saved to '{output_path}' ({len(guidance)} sites processed).")
 
 def main():
