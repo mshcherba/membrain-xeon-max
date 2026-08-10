@@ -15,7 +15,7 @@
 #
 # LULESH_ARGS:
 #   Optional CLI parameters passed to LULESH.
-#   Default: -s 420 -i 5 -r 11 -b 0 -c 64 -p
+#   Default: -s 400 -i 5 -r 11 -b 0 -c 64 -p
 #
 # Environment Variables:
 #   LULESH_DIR - Path to LULESH repository (Default: ../LULESH)
@@ -37,7 +37,7 @@ shift 1 2>/dev/null || true
 
 LULESH_ARGS=("$@")
 if [ ${#LULESH_ARGS[@]} -eq 0 ]; then
-    LULESH_ARGS=(-s 420 -i 5 -r 11 -b 0 -c 64 -p)
+    LULESH_ARGS=(-s 400 -i 5 -r 11 -b 0 -c 64 -p)
 fi
 
 if [ -f /opt/intel/oneapi/setvars.sh ]; then

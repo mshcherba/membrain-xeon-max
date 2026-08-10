@@ -111,17 +111,17 @@ Execute the instrumented binary with generated placement guidance:
 MEMBRAIN_GUIDANCE_PATH="site_tier_guidance.json" \
 LD_LIBRARY_PATH="$(pwd)/build/runtime:${LD_LIBRARY_PATH}" \
 MEMBRAIN_VERBOSE=1 \
-LULESH/build/lulesh2.0 -s 420 -i 5 -r 11 -b 0 -c 64 -p
+LULESH/build/lulesh2.0 -s 400 -i 5 -r 11 -b 0 -c 64 -p
 ```
 
 ### 6. Automated End-to-End Evaluation Pipeline
-Run a complete baseline vs MemBrain evaluation comparison (defaults to `-s 420 -i 5 -r 11 -b 0 -c 64 -p`):
+Run a complete baseline vs MemBrain evaluation comparison (defaults to `-s 400 -i 5 -r 11 -b 0 -c 64 -p`):
 ```bash
 ./scripts/run_lulesh_eval.sh
 ```
 Or pass custom arguments:
 ```bash
-./scripts/run_lulesh_eval.sh -s 420 -i 5 -r 11 -b 0 -c 64 -p
+./scripts/run_lulesh_eval.sh -s 400 -i 5 -r 11 -b 0 -c 64 -p
 ```
 
 This script automatically executes baseline Intel LULESH, profiles allocation sites, calculates placement guidance, runs MemBrain-guided execution, and outputs a formatted performance speedup summary table.

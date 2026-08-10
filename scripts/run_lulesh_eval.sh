@@ -29,7 +29,7 @@ fi
 
 LULESH_ARGS=("$@")
 if [ ${#LULESH_ARGS[@]} -eq 0 ]; then
-    LULESH_ARGS=(-s 420 -i 5 -r 11 -b 0 -c 64 -p)
+    LULESH_ARGS=(-s 400 -i 5 -r 11 -b 0 -c 64 -p)
 fi
 
 WORK_DIR="${MEMBRAIN_ROOT}/build/eval_run"
