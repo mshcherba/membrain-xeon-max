@@ -27,7 +27,7 @@ fi
 echo "[INFO] Installing system build dependencies (LLVM, Clang, NUMA, CMake)..."
 
 apt-get update
-apt-get install -y wget gpg cmake build-essential g++-14 git clang llvm-dev libnuma-dev numactl python3
+apt-get install -y wget gpg cmake build-essential g++-14 git clang llvm-dev libomp-dev libnuma-dev numactl python3
 
 # Install Intel oneAPI DPC++/C++ Compiler if missing
 if ! command -v icpx >/dev/null 2>&1 && [ ! -f /opt/intel/oneapi/setvars.sh ]; then
