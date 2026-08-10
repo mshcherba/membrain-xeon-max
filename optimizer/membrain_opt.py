@@ -16,26 +16,15 @@ def load_profile_data(profile_path):
     with open(profile_path, 'r') as f:
         return json.load(f)
 
-def run_hotset_optimization(sites, hbm_capacity_bytes):
-    sorted_sites = sorted(sites, key=lambda x: x.get("hotness", 0), reverse=True)
-    current_hbm_usage = 0
-    hbm_sites = set()
-
-    for site in sorted_sites:
-        site_id = site["site_id"]
-        site_rss = site.get("rss_bytes", 0)
-        
-        hbm_sites.add(site_id)
-        current_hbm_usage += site_rss
-        # Hotset stops immediately after exceeding soft capacity limit
-        if current_hbm_usage >= hbm_capacity_bytes:
-            break
-
-    guidance = [{"site_id": s["site_id"], "tier": 2 if s["site_id"] in hbm_sites else 0} for s in sites]
-    return guidance, current_hbm_usage
-
 def run_knapsack_optimization(sites, hbm_capacity_bytes):
-    # Scale capacity and RSS bytes using static 4 KB page granularity
+    """
+    0/1 Knapsack Optimization Strategy (MemBrain Paper Section III-A).
+
+    Formulates data placement as a 0/1 knapsack problem:
+    - Item weight: static 4 KB page count (rss_bytes // 4096)
+    - Item value: total access count
+    - Capacity limit W: hbm_capacity_bytes // 4096
+    """
     scale_factor = 4096 
     W = max(1, int(hbm_capacity_bytes // scale_factor))
     n = len(sites)
@@ -60,6 +49,33 @@ def run_knapsack_optimization(sites, hbm_capacity_bytes):
             w -= weights[i - 1]
 
     current_hbm_usage = sum(s.get("rss_bytes", 0) for s in sites if s["site_id"] in hbm_sites)
+    guidance = [{"site_id": s["site_id"], "tier": 2 if s["site_id"] in hbm_sites else 0} for s in sites]
+    return guidance, current_hbm_usage
+
+def run_hotset_optimization(sites, hbm_capacity_bytes):
+    """
+    Hotset Optimization Strategy (MemBrain Paper Section III-A).
+
+    Algorithm:
+    - Sort allocation sites by hotness = (access_count / rss_bytes) in descending order.
+    - Soft Capacity Behavior: Adds sites sequentially into HBM until aggregate capacity
+      meets or exceeds hbm_capacity_bytes. The site that causes total usage to cross
+      the capacity threshold is included (soft capacity limit) before iteration stops.
+    """
+    sorted_sites = sorted(sites, key=lambda x: x.get("hotness", 0), reverse=True)
+    current_hbm_usage = 0
+    hbm_sites = set()
+
+    for site in sorted_sites:
+        site_id = site["site_id"]
+        site_rss = site.get("rss_bytes", 0)
+        
+        # Soft capacity behavior: site is added first before checking capacity limit
+        hbm_sites.add(site_id)
+        current_hbm_usage += site_rss
+        if current_hbm_usage >= hbm_capacity_bytes:
+            break
+
     guidance = [{"site_id": s["site_id"], "tier": 2 if s["site_id"] in hbm_sites else 0} for s in sites]
     return guidance, current_hbm_usage
 
