@@ -82,14 +82,14 @@ python3 profiler/pebs_profiler.py \
     --sites LULESH/build/allocation_sites.json \
     --runtime build/runtime/libmembrain_rt.so \
     --output profile_data.json \
-    LULESH/build/lulesh2.0 -s 10 -i 5
+    LULESH/build/lulesh2.0 -s 400 -i 5 -r 11 -b 0 -c 64 -p
 
 # Memory Bandwidth Isolation (MBI) Profiler
 python3 profiler/mbi_profiler.py \
     --sites LULESH/build/allocation_sites.json \
     --runtime build/runtime/libmembrain_rt.so \
     --output mbi_profile_data.json \
-    LULESH/build/lulesh2.0 -s 10 -i 5
+    LULESH/build/lulesh2.0 -s 400 -i 5 -r 11 -b 0 -c 64 -p
 ```
 
 ### 4. Running Optimization Algorithms
