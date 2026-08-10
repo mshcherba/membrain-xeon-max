@@ -64,8 +64,23 @@ def run_knapsack_optimization(sites, hbm_capacity_bytes):
     return guidance, current_hbm_usage
 
 def run_thermos_optimization(sites, hbm_capacity_bytes):
+    """
+    Thermos Data Placement Optimization Strategy (MemBrain Paper Section III-A).
+
+    Algorithm:
+    1. Sort sites by hotness = (access_count / rss_bytes) in descending order.
+    2. Add sites to HBM as long as (current_hbm_usage + site_rss <= hbm_capacity_bytes).
+    3. When a site causes HBM usage to exceed capacity (current_hbm_usage + site_rss > hbm_capacity_bytes):
+       - Compute overflow_bytes = (current_hbm_usage + site_rss) - hbm_capacity_bytes
+       - Compute current average HBM bandwidth density:
+         hbm_density = total_hbm_access / current_hbm_usage
+       - Compute displaced bandwidth cost:
+         displaced_bandwidth = overflow_bytes * hbm_density
+       - Assign site to HBM if and only if site_access > displaced_bandwidth.
+    """
     sorted_sites = sorted(sites, key=lambda x: x.get("hotness", 0), reverse=True)
     current_hbm_usage = 0
+    total_hbm_access = 0
     hbm_sites = set()
 
     for site in sorted_sites:
@@ -73,13 +88,27 @@ def run_thermos_optimization(sites, hbm_capacity_bytes):
         site_rss = site.get("rss_bytes", 0)
         site_access = site.get("access_count", 0)
 
+        if current_hbm_usage >= hbm_capacity_bytes:
+            # HBM capacity is full or exceeded. Because sites are sorted by hotness descending,
+            # any remaining site's hotness is <= hbm_density, so it can never pass the threshold.
+            break
+
         if current_hbm_usage + site_rss <= hbm_capacity_bytes:
             hbm_sites.add(site_id)
             current_hbm_usage += site_rss
+            total_hbm_access += site_access
         else:
-            if site_access > 0 and current_hbm_usage < hbm_capacity_bytes:
+            # Thermos displacement threshold check:
+            # Only assign the site if its contributed bandwidth (site_access) is greater
+            # than the aggregate bandwidth of the data it would displace from HBM.
+            overflow_bytes = (current_hbm_usage + site_rss) - hbm_capacity_bytes
+            hbm_density = (total_hbm_access / current_hbm_usage) if current_hbm_usage > 0 else 0
+            displaced_bandwidth = overflow_bytes * hbm_density
+
+            if site_access > displaced_bandwidth:
                 hbm_sites.add(site_id)
                 current_hbm_usage += site_rss
+                total_hbm_access += site_access
 
     guidance = [{"site_id": s["site_id"], "tier": 2 if s["site_id"] in hbm_sites else 0} for s in sites]
     return guidance, current_hbm_usage
