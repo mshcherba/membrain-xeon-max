@@ -7,7 +7,7 @@ MemBrain is an automated data placement framework for single-socket hybrid memor
 
 > **Note:** This repository is an independent research implementation of the MemBrain framework tailored for single-socket Intel Xeon Max systems.
 
-
+---
 
 ## 📚 Citation & Reference
 
@@ -30,17 +30,16 @@ If you use this codebase or reference the MemBrain concept, please cite the orig
 
 ---
 
-
 ## 📁 Repository Structure
 
 - `llvm-pass/` — LLVM Compiler Pass plugin (`MemBrainPass.so`) for allocation rewriting, `site_id` tagging, and static function cloning ($n=4$).
-- `runtime/` — Dynamic interposition runtime library (`libmembrain_rt.so`) with `mbind(MPOL_PREFERRED)` NUMA memory binding.
+- `runtime/` — Dynamic interposition runtime library (`libmembrain_rt.so`) with UMF Scalable Memory Pools and `mbind(MPOL_PREFERRED)` NUMA memory binding.
 - `profiler/` — Memory profilers:
-  - `pebs_profiler.py`: PEBS-based access sampling & peak RSS tracking.
+  - `pebs_profiler.py`: PEBS-based access sampling & peak RSS tracking per allocation site.
   - `mbi_profiler.py`: Memory Bandwidth Isolation (MBI) per-site bandwidth profiler.
-- `optimizer/` — Placement guidance bin-packing optimizer (`membrain_opt.py`) supporting **Thermos**, **Hotset**, and **0/1 Knapsack (DP)** algorithms.
+- `optimizer/` — Placement guidance bin-packing optimizer (`membrain_opt.py`) supporting **0/1 Knapsack (DP)**, **Hotset**, and **Thermos** strategies.
 - `scripts/` — Automated build and benchmark evaluation pipelines:
-  - `build_lulesh_membrain.sh`: Isolated compilation of LULESH 2.0 with MemBrain LLVM Pass.
+  - `build_lulesh.sh`: 2-stage build pipeline (Clang LLVM Pass transformation + Intel `icpx` native linking) with automatic site metadata merging (`merge_allocation_sites.py`).
   - `run_lulesh_eval.sh`: End-to-end evaluation pipeline comparing baseline Intel LULESH vs MemBrain-guided execution.
 
 ---
@@ -50,7 +49,7 @@ If you use this codebase or reference the MemBrain concept, please cite the orig
 - **Hardware Platform:** Intel Xeon Max (Sapphire Rapids HBM2e + DDR5).
 - **NUMA Configuration:** Single-socket execution (NUMA 0: DDR5, NUMA 2: HBM2e Flat Mode).
 - **Software Dependencies:**
-  - `LLVM 18` / `clang++` or `icpx`
+  - `LLVM 18` / `clang++` or Intel `icpx`
   - `libnuma-dev`
   - `Python 3`
   - `numactl`
@@ -73,7 +72,7 @@ To build the unified LULESH 2.0 binary with Intel compiler and MemBrain integrat
 ```bash
 ./scripts/build_lulesh.sh
 ```
-This generates `/users/maksym/LULESH/build/lulesh2.0`.
+This automatically runs Stage A (LLVM Pass transformation), merges module metadata into `LULESH/build/allocation_sites.json`, and outputs the binary at `LULESH/build/lulesh2.0`.
 
 ### 3. Profiling Allocation Sites
 Generate access frequency and bandwidth profiles:
@@ -96,19 +95,20 @@ python3 profiler/mbi_profiler.py \
 ### 4. Running Optimization Algorithms
 Generate placement guidance (`site_tier_guidance.json`) using one of the three supported bin-packing strategies:
 ```bash
-# Thermos Strategy (Greedy with Displacement Thresholding)
-python3 optimizer/membrain_opt.py --profile profile_data.json --strategy thermos --hbm-capacity-mb 65536.0
+# 0/1 Knapsack Strategy (Dynamic Programming)
+python3 optimizer/membrain_opt.py --profile profile_data.json --strategy knapsack --hbm-capacity-mb 65536.0
 
 # Hotset Strategy (Soft Capacity Limit)
 python3 optimizer/membrain_opt.py --profile profile_data.json --strategy hotset --hbm-capacity-mb 65536.0
 
-# 0/1 Knapsack Strategy (Dynamic Programming)
-python3 optimizer/membrain_opt.py --profile profile_data.json --strategy knapsack --hbm-capacity-mb 65536.0
+# Thermos Strategy (Greedy Selection with Displacement Thresholding)
+python3 optimizer/membrain_opt.py --profile profile_data.json --strategy thermos --hbm-capacity-mb 65536.0
 ```
 
 ### 5. Running MemBrain-Guided Binary
 Execute the instrumented binary with generated placement guidance:
 ```bash
+MEMBRAIN_GUIDANCE_PATH="site_tier_guidance.json" \
 LD_LIBRARY_PATH="$(pwd)/build/runtime:${LD_LIBRARY_PATH}" \
 MEMBRAIN_VERBOSE=1 \
 LULESH/build/lulesh2.0 -s 420 -i 5 -r 11 -b 0 -c 64 -p
@@ -125,4 +125,3 @@ Or pass custom arguments:
 ```
 
 This script automatically executes baseline Intel LULESH, profiles allocation sites, calculates placement guidance, runs MemBrain-guided execution, and outputs a formatted performance speedup summary table.
-

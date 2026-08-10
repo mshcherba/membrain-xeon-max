@@ -19,12 +19,15 @@ def parse_allocation_sites(sites_file):
         return json.load(f)
 
 def write_isolation_guidance(target_site_id, sites, guidance_file):
+    guidance = []
+    for s in sites:
+        sid = s["site_id"]
+        # Target site isolated on DDR5 (tier 0), all other sites on HBM2e (tier 2)
+        tier = 0 if sid == target_site_id else 2
+        guidance.append({"site_id": sid, "tier": tier})
+
     with open(guidance_file, "w") as f:
-        for s in sites:
-            sid = s["site_id"]
-            # Target site isolated on DDR5 (tier 0), all other sites on HBM2e (tier 2)
-            tier = 0 if sid == target_site_id else 2
-            f.write(json.dumps({"site_id": sid, "tier": tier}) + "\n")
+        json.dump(guidance, f, indent=2)
 
 def profile_isolated_site(target_site, all_sites, cmd, runtime_lib, guidance_file):
     site_id = target_site["site_id"]
@@ -34,6 +37,7 @@ def profile_isolated_site(target_site, all_sites, cmd, runtime_lib, guidance_fil
     ld_path = env.get("LD_LIBRARY_PATH", "")
     runtime_dir = os.path.dirname(os.path.abspath(runtime_lib))
     env["LD_LIBRARY_PATH"] = f"{runtime_dir}:{ld_path}"
+    env["MEMBRAIN_GUIDANCE_PATH"] = guidance_file
 
     print(f"[MBI Profiler] Isolating Site ID {site_id} ({target_site.get('function', 'unknown')}) on DDR5...")
 
