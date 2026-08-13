@@ -40,33 +40,51 @@ def run_pebs_profiling(cmd, runtime_lib, sites_file, output_file, sample_interva
     print(f"[PEBS Profiler] Launching target command under PEBS & pagemap profiling: {' '.join(cmd)}")
     start_time = time.time()
     
-    # Launch process under perf record for memory loads
-    perf_cmd = ["perf", "record", "-e", "mem_inst_retired.all_loads:pp", "-o", "pebs_perf.data"] + cmd
+    # Launch process under perf record with -d flag for memory load data addresses (L3 misses)
+    perf_cmd = ["perf", "record", "-e", "mem_load_retired.l3_miss:pp", "-d", "-o", "pebs_perf.data"] + cmd
     
     try:
-        proc = subprocess.Popen(perf_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(perf_cmd, env=env)
     except FileNotFoundError:
         print("[PEBS Profiler] Error: 'perf' executable not found.", file=sys.stderr)
         sys.exit(1)
 
     peak_process_rss = 0
-    while proc.poll() is None:
+    page_size = os.sysconf('SC_PAGE_SIZE')
+
+    def get_process_tree_rss(pid):
+        total_rss = 0
         try:
-            with open(f"/proc/{proc.pid}/statm", "r") as f:
-                pages = int(f.read().split()[1])
-                rss_bytes = pages * os.sysconf('SC_PAGE_SIZE')
-                if rss_bytes > peak_process_rss:
-                    peak_process_rss = rss_bytes
-        except (FileNotFoundError, ProcessLookupError, IndexError):
+            pids_to_check = [pid]
+            while pids_to_check:
+                curr_pid = pids_to_check.pop(0)
+                try:
+                    with open(f"/proc/{curr_pid}/statm", "r") as f:
+                        pages = int(f.read().split()[1])
+                        total_rss += pages * page_size
+                except (FileNotFoundError, ProcessLookupError, IndexError):
+                    pass
+
+                try:
+                    with open(f"/proc/{curr_pid}/task/{curr_pid}/children", "r") as f:
+                        children = [int(c) for c in f.read().split()]
+                        pids_to_check.extend(children)
+                except (FileNotFoundError, ProcessLookupError, ValueError):
+                    pass
+        except Exception:
             pass
+        return total_rss
+
+    while proc.poll() is None:
+        current_rss = get_process_tree_rss(proc.pid)
+        if current_rss > peak_process_rss:
+            peak_process_rss = current_rss
         time.sleep(sample_interval)
 
-    stdout, stderr = proc.communicate()
-    if proc.returncode != 0:
-        print(f"[PEBS Profiler] Error: Target command or perf record failed with exit code {proc.returncode}.", file=sys.stderr)
-        if stderr:
-            print(f"[PEBS Profiler] Stderr: {stderr}", file=sys.stderr)
-        sys.exit(proc.returncode)
+    ret_code = proc.wait()
+    if ret_code != 0:
+        print(f"[PEBS Profiler] Error: Target command or perf record failed with exit code {ret_code}.", file=sys.stderr)
+        sys.exit(ret_code)
 
     elapsed = time.time() - start_time
     print(f"[PEBS Profiler] Target finished in {elapsed:.2f} seconds. Peak Process RSS: {peak_process_rss / (1024*1024):.2f} MB")

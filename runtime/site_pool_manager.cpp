@@ -123,8 +123,14 @@ void SitePoolManager::unregisterAllocation(void* ptr) {
 }
 
 void SitePoolManager::samplePeakRss() {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (const auto& entry : m_siteRegions) {
+    std::unordered_map<uint32_t, std::vector<AllocRegion>> regionsSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        regionsSnapshot = m_siteRegions;
+    }
+
+    std::unordered_map<uint32_t, size_t> sampledRss;
+    for (const auto& entry : regionsSnapshot) {
         uint32_t siteId = entry.first;
         size_t currentResidentBytes = 0;
 
@@ -132,8 +138,16 @@ void SitePoolManager::samplePeakRss() {
             currentResidentBytes += pagemap::getResidentBytes(reg.start, reg.end);
         }
 
-        if (currentResidentBytes > m_peakRssBytes[siteId]) {
-            m_peakRssBytes[siteId] = currentResidentBytes;
+        sampledRss[siteId] = currentResidentBytes;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (const auto& entry : sampledRss) {
+            uint32_t siteId = entry.first;
+            if (entry.second > m_peakRssBytes[siteId]) {
+                m_peakRssBytes[siteId] = entry.second;
+            }
         }
     }
 }
@@ -178,7 +192,7 @@ void SitePoolManager::startSamplerThread() {
     m_stopSampler = false;
     m_samplerThread = std::thread([this]() {
         while (!m_stopSampler.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::this_thread::sleep_for(std::chrono::milliseconds(5000));
             if (m_stopSampler.load()) break;
             try {
                 this->samplePeakRss();

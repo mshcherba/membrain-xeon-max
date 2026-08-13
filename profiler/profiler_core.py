@@ -78,16 +78,26 @@ def parse_pebs_perf_data(perf_data_file, regions):
     cmd = ["perf", "script", "-i", perf_data_file]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        hex_pattern = re.compile(r'0x[0-9a-fA-F]+')
 
         for line in proc.stdout:
-            addrs = [int(addr, 16) for addr in hex_pattern.findall(line)]
-            for addr in addrs:
-                for reg in regions:
-                    if reg["start"] <= addr < reg["end"]:
-                        sid = reg["site_id"]
-                        site_access_counts[sid] = site_access_counts.get(sid, 0) + 1
+            parts = line.strip().split()
+            if len(parts) >= 6:
+                addr_str = None
+                for idx, part in enumerate(parts):
+                    if part.endswith(':') and ('mem_load' in part or 'mem_inst' in part or 'l3_miss' in part):
+                        if idx + 1 < len(parts):
+                            addr_str = parts[idx + 1]
                         break
+                if addr_str:
+                    try:
+                        addr = int(addr_str, 16)
+                        for reg in regions:
+                            if reg["start"] <= addr < reg["end"]:
+                                sid = reg["site_id"]
+                                site_access_counts[sid] = site_access_counts.get(sid, 0) + 1
+                                break
+                    except ValueError:
+                        pass
         proc.wait()
     except Exception as e:
         print(f"[ProfilerCore] Warning parsing perf script output: {e}", file=sys.stderr)
