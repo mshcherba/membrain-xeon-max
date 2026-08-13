@@ -18,7 +18,7 @@ from profiler_core import (
     export_profile_json
 )
 
-def run_pebs_profiling(cmd, runtime_lib, sites_file, output_file, sample_interval=0.5):
+def run_pebs_profiling(cmd, runtime_lib, sites_file, output_file, sample_period=512, sample_interval=0.5):
     sites = parse_allocation_sites(sites_file)
     if not sites:
         print("[PEBS Profiler] No allocation sites found to profile.", file=sys.stderr)
@@ -37,11 +37,11 @@ def run_pebs_profiling(cmd, runtime_lib, sites_file, output_file, sample_interva
     env["MEMBRAIN_TRACE"] = "1"
     env["MEMBRAIN_PROFILE"] = "1"
 
-    print(f"[PEBS Profiler] Launching target command under PEBS & pagemap profiling: {' '.join(cmd)}")
+    print(f"[PEBS Profiler] Launching target command under PEBS (period={sample_period}) & pagemap profiling: {' '.join(cmd)}")
     start_time = time.time()
     
-    # Launch process under perf record with -d flag for memory load data addresses (L3 misses)
-    perf_cmd = ["perf", "record", "-e", "mem_load_retired.l3_miss:pp", "-d", "-o", "pebs_perf.data"] + cmd
+    # Launch process under perf record with -c sample_period and -d flag for memory load data addresses (L3 misses)
+    perf_cmd = ["perf", "record", "-e", "mem_load_retired.l3_miss:pp", "-c", str(sample_period), "-d", "-o", "pebs_perf.data"] + cmd
     
     try:
         proc = subprocess.Popen(perf_cmd, env=env)
@@ -117,6 +117,7 @@ def main():
     parser.add_argument("--sites", default="allocation_sites.json", help="Path to allocation_sites.json")
     parser.add_argument("--runtime", default="../build/runtime/libmembrain_rt.so", help="Path to libmembrain_rt.so")
     parser.add_argument("--output", default="profile_data.json", help="Output profile data JSON path")
+    parser.add_argument("--sample-period", "--sample-rate", type=int, default=512, help="PEBS sample period/rate (LLC misses per sample, default: 512)")
     parser.add_argument("cmd", nargs=argparse.REMAINDER, help="Target application command")
 
     args = parser.parse_args()
@@ -124,7 +125,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    run_pebs_profiling(args.cmd, args.runtime, args.sites, args.output)
+    run_pebs_profiling(args.cmd, args.runtime, args.sites, args.output, sample_period=args.sample_period)
 
 if __name__ == "__main__":
     main()
