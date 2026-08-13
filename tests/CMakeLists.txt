@@ -11,3 +11,7 @@ target_include_directories(test_pagemap PRIVATE ${CMAKE_SOURCE_DIR}/runtime)
 add_executable(test_site_pool_manager test_site_pool_manager.cpp)
 target_link_libraries(test_site_pool_manager PRIVATE membrain_rt)
 target_include_directories(test_site_pool_manager PRIVATE ${CMAKE_SOURCE_DIR}/runtime)
+
+add_executable(test_pagemap_rss test_pagemap_rss.cpp)
+target_link_libraries(test_pagemap_rss PRIVATE membrain_rt)
+target_include_directories(test_pagemap_rss PRIVATE ${CMAKE_SOURCE_DIR}/runtime)
