@@ -7,8 +7,7 @@
 
 void createGuidanceFile() {
     std::ofstream file("site_tier_guidance.json");
-    file << "{\"site_id\": 1, \"tier\": 0}\n";
-    file << "{\"site_id\": 2, \"tier\": 2}\n";
+    file << "[\n  {\"site_id\": 1, \"tier\": 0},\n  {\"site_id\": 2, \"tier\": 2}\n]\n";
     file.close();
 }
 

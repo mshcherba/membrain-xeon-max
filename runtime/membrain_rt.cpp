@@ -1,4 +1,7 @@
 #include "membrain_rt.h"
+#include "topology_config.h"
+#include "guidance_parser.h"
+
 #include <unistd.h>
 #include <atomic>
 #include <cerrno>
@@ -24,7 +27,7 @@ static std::atomic<uint64_t> g_ddrAllocations{0};
 static bool g_verbose = false;
 static bool g_trace = false;
 static std::once_flag g_initFlag;
-static std::unordered_map<uint32_t, int> g_siteTierMap; // site_id -> NUMA node (0: DDR5, 2: HBM2e)
+static std::unordered_map<uint32_t, int> g_siteTierMap; // site_id -> NUMA node
 static std::ofstream g_traceFile;
 static std::mutex g_traceMutex;
 
@@ -32,10 +35,13 @@ static umf_memory_pool_handle_t g_hbmPool = nullptr;
 static umf_memory_pool_handle_t g_ddrPool = nullptr;
 
 void initUmfPools() {
-    // 1. Initialize HBM2e OS Memory Provider (NUMA Node 2)
+    int hbmNode = membrain::topology::getHbmNode();
+    int ddrNode = membrain::topology::getDdrNode();
+
+    // 1. Initialize HBM OS Memory Provider
     umf_os_memory_provider_params_handle_t hbmParams = nullptr;
     if (umfOsMemoryProviderParamsCreate(&hbmParams) == UMF_RESULT_SUCCESS) {
-        unsigned hbmNodes[] = {2};
+        unsigned hbmNodes[] = {static_cast<unsigned>(hbmNode)};
         umfOsMemoryProviderParamsSetNumaList(hbmParams, hbmNodes, 1);
         umfOsMemoryProviderParamsSetNumaMode(hbmParams, UMF_NUMA_MODE_PREFERRED);
         umfOsMemoryProviderParamsSetName(hbmParams, "HBM2eProvider");
@@ -47,10 +53,10 @@ void initUmfPools() {
         umfOsMemoryProviderParamsDestroy(hbmParams);
     }
 
-    // 2. Initialize DDR5 OS Memory Provider (NUMA Node 0)
+    // 2. Initialize DDR OS Memory Provider
     umf_os_memory_provider_params_handle_t ddrParams = nullptr;
     if (umfOsMemoryProviderParamsCreate(&ddrParams) == UMF_RESULT_SUCCESS) {
-        unsigned ddrNodes[] = {0};
+        unsigned ddrNodes[] = {static_cast<unsigned>(ddrNode)};
         umfOsMemoryProviderParamsSetNumaList(ddrParams, ddrNodes, 1);
         umfOsMemoryProviderParamsSetNumaMode(ddrParams, UMF_NUMA_MODE_PREFERRED);
         umfOsMemoryProviderParamsSetName(ddrParams, "DDR5Provider");
@@ -68,7 +74,8 @@ void initUmfPools() {
     }
 
     if (g_verbose) {
-        std::cout << "[MemBrainRT] Initialized UMF Scalable Memory Pools (HBM2e Pool: OK, DDR5 Pool: OK)\n";
+        std::cout << "[MemBrainRT] Initialized UMF Scalable Memory Pools (HBM Node " << hbmNode
+                  << ": OK, DDR Node " << ddrNode << ": OK)\n";
     }
 }
 
@@ -100,29 +107,13 @@ void logAllocationTrace(void *ptr, size_t size, uint32_t site_id) {
 void parseGuidanceFile() {
     const char *envPath = std::getenv("MEMBRAIN_GUIDANCE_PATH");
     std::string path = envPath ? envPath : "site_tier_guidance.json";
-    std::ifstream file(path);
-    if (!file.is_open()) {
+
+    if (!membrain::guidance::parseFile(path, g_siteTierMap)) {
         if (g_verbose) {
-            std::cout << "[MemBrainRT] " << path << " not found. Defaulting all allocations to DDR5 (NUMA 0)\n";
+            std::cout << "[MemBrainRT] " << path << " not found or empty. Defaulting all allocations to DDR (NUMA "
+                      << membrain::topology::getDdrNode() << ")\n";
         }
         return;
-    }
-
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    size_t pos = 0;
-    while ((pos = content.find("\"site_id\"", pos)) != std::string::npos) {
-        size_t idPos = content.find(":", pos);
-        if (idPos == std::string::npos) break;
-        uint32_t siteId = std::stoul(content.substr(idPos + 1));
-        
-        size_t tierKeyPos = content.find("\"tier\"", idPos);
-        if (tierKeyPos == std::string::npos) break;
-        size_t tierPos = content.find(":", tierKeyPos);
-        if (tierPos == std::string::npos) break;
-        int tierNode = std::stoi(content.substr(tierPos + 1));
-        
-        g_siteTierMap[siteId] = tierNode;
-        pos = tierPos + 1;
     }
 
     if (g_verbose) {
@@ -138,20 +129,23 @@ void initRuntime() {
         g_trace = (envT[0] == '1' || envT[0] == 'y');
     }
 
+    membrain::topology::initFromEnv();
+
     parseGuidanceFile();
     initUmfPools();
 
     if (g_verbose) {
-        std::cout << "[MemBrainRT] Initialized for Single-Socket Xeon Max (DDR5: NUMA 0, HBM2e: NUMA 2)\n";
+        std::cout << "[MemBrainRT] Initialized for Xeon Max (DDR Node: " << membrain::topology::getDdrNode()
+                  << ", HBM Node: " << membrain::topology::getHbmNode() << ")\n";
     }
 }
 
 int getTargetNode(uint32_t site_id) {
     auto it = g_siteTierMap.find(site_id);
     if (it != g_siteTierMap.end()) {
-        return it->second;
+        return membrain::topology::getNumaNodeForTier(it->second);
     }
-    return 0; // Default to DDR5 (NUMA 0)
+    return membrain::topology::getDdrNode();
 }
 
 void trackAllocation(void *ptr, size_t size, uint32_t site_id, const char *allocName) {
@@ -164,7 +158,7 @@ void trackAllocation(void *ptr, size_t size, uint32_t site_id, const char *alloc
 
     g_totalAllocations.fetch_add(1, std::memory_order_relaxed);
     g_totalBytesAllocated.fetch_add(size, std::memory_order_relaxed);
-    if (targetNode == 2) {
+    if (targetNode == membrain::topology::getHbmNode()) {
         g_hbmAllocations.fetch_add(1, std::memory_order_relaxed);
     } else {
         g_ddrAllocations.fetch_add(1, std::memory_order_relaxed);
@@ -173,7 +167,7 @@ void trackAllocation(void *ptr, size_t size, uint32_t site_id, const char *alloc
     if (g_verbose) {
         std::cout << "[MemBrainRT] Site ID " << site_id << " -> " << allocName << " " << size
                   << " bytes on NUMA Node " << targetNode << " ("
-                  << (targetNode == 2 ? "HBM2e" : "DDR5") << ")\n";
+                  << (targetNode == membrain::topology::getHbmNode() ? "HBM2e" : "DDR5") << ")\n";
     }
 }
 
@@ -191,9 +185,9 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
     if (size == 0) return nullptr;
 
     int targetNode = getTargetNode(site_id);
-    umf_memory_pool_handle_t targetPool = (targetNode == 2) ? g_hbmPool : g_ddrPool;
-
+    umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
     void *ptr = umfPoolMalloc(targetPool, size);
+
     trackAllocation(ptr, size, site_id, "Allocated");
     return ptr;
 }
@@ -219,9 +213,9 @@ int membrain_posix_memalign(void **memptr, size_t alignment, size_t size, uint32
     }
 
     int targetNode = getTargetNode(site_id);
-    umf_memory_pool_handle_t targetPool = (targetNode == 2) ? g_hbmPool : g_ddrPool;
-
+    umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
     void *ptr = umfPoolAlignedMalloc(targetPool, size, alignment);
+
     if (!ptr) {
         *memptr = nullptr;
         return ENOMEM;
