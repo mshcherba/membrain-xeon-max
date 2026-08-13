@@ -101,7 +101,7 @@ static void performFunctionCloning(Module &M, uint32_t maxDepth = 4) {
                 }
             }
 
-            if (callers.size() > 1 && callers.size() <= 16) {
+            if (callers.size() > 1) {
                 for (size_t i = 1; i < callers.size(); ++i) {
                     ValueToValueMapTy VMap;
                     std::string cloneName = (F->getName() + "_mbclone_" + Twine(i)).str();
