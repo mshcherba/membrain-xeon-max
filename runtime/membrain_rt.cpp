@@ -1,6 +1,7 @@
 #include "membrain_rt.h"
 #include "topology_config.h"
 #include "guidance_parser.h"
+#include "site_pool_manager.h"
 
 #include <unistd.h>
 #include <atomic>
@@ -130,6 +131,7 @@ void initRuntime() {
     }
 
     membrain::topology::initFromEnv();
+    membrain::SitePoolManager::instance().initFromEnv();
 
     parseGuidanceFile();
     initUmfPools();
@@ -184,9 +186,20 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
 
     if (size == 0) return nullptr;
 
-    int targetNode = getTargetNode(site_id);
-    umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
-    void *ptr = umfPoolMalloc(targetPool, size);
+    void *ptr = nullptr;
+    auto& siteMgr = membrain::SitePoolManager::instance();
+
+    if (siteMgr.isProfilingMode()) {
+        umf_memory_pool_handle_t sitePool = siteMgr.getOrCreateSitePool(site_id);
+        ptr = sitePool ? umfPoolMalloc(sitePool, size) : nullptr;
+        if (ptr) {
+            siteMgr.registerAllocation(site_id, ptr, size);
+        }
+    } else {
+        int targetNode = getTargetNode(site_id);
+        umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
+        ptr = umfPoolMalloc(targetPool, size);
+    }
 
     trackAllocation(ptr, size, site_id, "Allocated");
     return ptr;
@@ -194,6 +207,10 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
 
 void membrain_free(void *ptr) {
     if (ptr) {
+        auto& siteMgr = membrain::SitePoolManager::instance();
+        if (siteMgr.isProfilingMode()) {
+            siteMgr.unregisterAllocation(ptr);
+        }
         umfFree(ptr);
     }
 }
@@ -212,9 +229,20 @@ int membrain_posix_memalign(void **memptr, size_t alignment, size_t size, uint32
         return EINVAL;
     }
 
-    int targetNode = getTargetNode(site_id);
-    umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
-    void *ptr = umfPoolAlignedMalloc(targetPool, size, alignment);
+    void *ptr = nullptr;
+    auto& siteMgr = membrain::SitePoolManager::instance();
+
+    if (siteMgr.isProfilingMode()) {
+        umf_memory_pool_handle_t sitePool = siteMgr.getOrCreateSitePool(site_id);
+        ptr = sitePool ? umfPoolAlignedMalloc(sitePool, size, alignment) : nullptr;
+        if (ptr) {
+            siteMgr.registerAllocation(site_id, ptr, size);
+        }
+    } else {
+        int targetNode = getTargetNode(site_id);
+        umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
+        ptr = umfPoolAlignedMalloc(targetPool, size, alignment);
+    }
 
     if (!ptr) {
         *memptr = nullptr;
