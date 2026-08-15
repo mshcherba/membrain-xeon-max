@@ -78,7 +78,7 @@ bool PebsSampler::init(uint64_t samplePeriod, size_t numDataPages) {
         std::cout << "[MemBrainRT] Initialized in-process PEBS buffers across " 
                   << m_buffers.size() << " CPU cores (sample period: " << m_samplePeriod << ").\n";
     } else {
-        std::cerr << "[MemBrainRT] Warning: Failed to open in-process PEBS buffers.\n";
+        std::cerr << "[MemBrainRT] Error: Failed to open in-process PEBS buffers.\n";
     }
 
     return m_enabled;

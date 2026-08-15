@@ -48,13 +48,12 @@ def profile_isolated_site(target_site, all_sites, cmd, runtime_lib, guidance_fil
     start_time = time.time()
 
     try:
-        proc = subprocess.run(perf_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.run(perf_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
         elapsed = max(0.001, time.time() - start_time)
         stderr_output = proc.stderr
-    except FileNotFoundError:
-        proc = subprocess.run(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        elapsed = max(0.001, time.time() - start_time)
-        stderr_output = ""
+    except Exception as e:
+        print(f"[MBI Profiler] Error executing '{' '.join(perf_cmd)}': {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Parse CAS access count or estimate bandwidth
     cas_count = 0
@@ -66,7 +65,8 @@ def profile_isolated_site(target_site, all_sites, cmd, runtime_lib, guidance_fil
                 break
 
     if cas_count == 0:
-        cas_count = max(1000, int(100000 / elapsed))
+        print(f"[MBI Profiler] Error: Failed to capture unc_m_cas_count.all counters for site {site_id}!", file=sys.stderr)
+        sys.exit(1)
 
     # 1 CAS count = 64 bytes cache line
     isolated_bytes = cas_count * 64
@@ -74,9 +74,11 @@ def profile_isolated_site(target_site, all_sites, cmd, runtime_lib, guidance_fil
 
     # Load physical Peak RSS from site_rss_profile.json
     site_rss_map = load_site_rss_profile("site_rss_profile.json")
-    regions, fallback_rss_map = parse_alloc_trace("alloc_trace.txt")
+    if site_id not in site_rss_map:
+        print(f"[MBI Profiler] Error: Site ID {site_id} not found in site_rss_profile.json!", file=sys.stderr)
+        sys.exit(1)
 
-    site_rss = site_rss_map.get(site_id, fallback_rss_map.get(site_id, 1048576))
+    site_rss = site_rss_map[site_id]
     hotness = (bandwidth_gbps / (site_rss / (1024 * 1024))) if site_rss > 0 else bandwidth_gbps
 
     print(f"[MBI Profiler] Site ID {site_id}: {bandwidth_gbps:.3f} GB/s bandwidth isolated, Peak RSS: {site_rss / (1024*1024):.2f} MB.")

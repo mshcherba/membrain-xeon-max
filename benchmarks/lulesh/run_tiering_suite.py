@@ -246,9 +246,9 @@ def measure_max_rss():
         proc = subprocess.run(cmd, stdout=f_log, stderr=subprocess.STDOUT, env=env, cwd=MEMBRAIN_ROOT)
 
     if proc.returncode != 0:
-        print(f"[RSS Measurement] WARNING: RSS measurement run failed (code {proc.returncode}). "
+        print(f"[RSS Measurement] ERROR: RSS measurement run failed (code {proc.returncode}). "
               f"See {log_path}", file=sys.stderr)
-        return None
+        sys.exit(1)
 
     with open(log_path, "r") as f_log:
         output = f_log.read()
@@ -258,7 +258,8 @@ def measure_max_rss():
     if max_rss_kb:
         print(f"[RSS Measurement] Peak RSS = {max_rss_kb:,} KB ({max_rss_kb / 1024:.1f} MB)")
     else:
-        print("[RSS Measurement] WARNING: Could not parse peak RSS from /usr/bin/time output.")
+        print("[RSS Measurement] ERROR: Could not parse peak RSS from /usr/bin/time output.", file=sys.stderr)
+        sys.exit(1)
     return max_rss_kb
 
 

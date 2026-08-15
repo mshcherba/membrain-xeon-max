@@ -27,12 +27,14 @@ def merge_allocation_sites(input_dir, output_file):
                     for item in data:
                         sid = item.get("site_id")
                         if sid in seen_site_ids:
-                            print(f"[MemBrain Merger] WARNING: Collision detected for site_id {sid} in '{os.path.basename(fpath)}'", file=sys.stderr)
+                            print(f"[MemBrain Merger] ERROR: Collision detected for site_id {sid} in '{os.path.basename(fpath)}'", file=sys.stderr)
+                            sys.exit(1)
                         else:
                             merged_sites.append(item)
                             seen_site_ids.add(sid)
         except Exception as e:
-            print(f"[MemBrain Merger] Warning: failed to read {fpath}: {e}", file=sys.stderr)
+            print(f"[MemBrain Merger] ERROR: Failed to read {fpath}: {e}", file=sys.stderr)
+            sys.exit(1)
 
     with open(output_file, 'w') as f:
         json.dump(merged_sites, f, indent=2)

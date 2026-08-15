@@ -31,6 +31,7 @@ else
     ACTUAL_FREE_MB=$(numactl --hardware | awk -v node="node $NODE free:" '$0 ~ node {print $4}')
     echo "[HBM Capacity Manager] Verification: Actual hugepages = ${ACTUAL_PAGES}, Actual free memory on Node $NODE = ${ACTUAL_FREE_MB} MB."
     if [ "${ACTUAL_PAGES}" -ne "${NR_PAGES}" ]; then
-        echo "[HBM Capacity Manager] WARNING: Requested ${NR_PAGES} hugepages but only ${ACTUAL_PAGES} were allocated. HBM capacity constraint may not match target (${TARGET_INT} MB)." >&2
+        echo "[HBM Capacity Manager] ERROR: Requested ${NR_PAGES} hugepages but only ${ACTUAL_PAGES} were allocated. HBM capacity constraint failed." >&2
+        exit 1
     fi
 fi

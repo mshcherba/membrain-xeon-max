@@ -94,7 +94,8 @@ def run_pebs_profiling(cmd, runtime_lib, sites_file, output_file, sample_period=
             data = json.load(f)
             print(f"[PEBS Profiler] Verified profile data for {len(data)} allocation sites in '{output_file}'")
     except Exception as e:
-        print(f"[PEBS Profiler] Warning reading '{output_file}': {e}", file=sys.stderr)
+        print(f"[PEBS Profiler] Error reading '{output_file}': {e}", file=sys.stderr)
+        sys.exit(1)
 
 def main():
     parser = argparse.ArgumentParser(description="MemBrain In-Process PEBS Memory Profiler")
