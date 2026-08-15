@@ -44,7 +44,7 @@ def profile_isolated_site(target_site, all_sites, cmd, runtime_lib, guidance_fil
 
     print(f"[MBI Profiler] Isolating Site ID {site_id} ({target_site.get('function', 'unknown')}) on DDR5...")
 
-    perf_cmd = ["perf", "stat", "-e", "unc_m_cas_count.all"] + cmd
+    perf_cmd = ["perf", "stat", "-e", "unc_m_cas_count.all", "--"] + cmd
     start_time = time.time()
 
     try:

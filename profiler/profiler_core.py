@@ -77,7 +77,7 @@ def parse_pebs_perf_data(perf_data_file, regions):
 
     cmd = ["perf", "script", "-i", perf_data_file]
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
 
         for line in proc.stdout:
             parts = line.strip().split()

@@ -37,11 +37,11 @@ def run_pebs_profiling(cmd, runtime_lib, sites_file, output_file, sample_period=
     env["MEMBRAIN_TRACE"] = "1"
     env["MEMBRAIN_PROFILE"] = "1"
 
-    print(f"[PEBS Profiler] Launching target command under PEBS (period={sample_period}) & pagemap profiling: {' '.join(cmd)}")
+    print(f"[PEBS Profiler] Launching target command under PEBS (period={sample_period}) & pagemap profiling: {' '.join(cmd)}", flush=True)
     start_time = time.time()
     
     # Launch process under perf record with -c sample_period and -d flag for memory load data addresses (L3 misses)
-    perf_cmd = ["perf", "record", "-e", "mem_load_retired.l3_miss:pp", "-c", str(sample_period), "-d", "-o", "pebs_perf.data"] + cmd
+    perf_cmd = ["perf", "record", "-e", "mem_load_retired.l3_miss:pp", "-c", str(sample_period), "-d", "-o", "pebs_perf.data", "--"] + cmd
     
     try:
         proc = subprocess.Popen(perf_cmd, env=env)
