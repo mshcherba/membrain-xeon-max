@@ -34,7 +34,7 @@ echo "==========================================================================
 /usr/bin/time -v python3 "${MEMBRAIN_ROOT}/profiler/pebs_profiler.py" \
     --sites "${SITES_JSON}" \
     --runtime "${MEMBRAIN_RT}" \
-    --output "${MEMBRAIN_ROOT}/profile_data.json" \
+    --output "${SCRIPT_DIR}/profile_data.json" \
     numactl --cpunodebind=0 "${LULESH_BIN}" "${LULESH_ARGS[@]}"
 
 echo "=============================================================================="
