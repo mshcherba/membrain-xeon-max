@@ -3,11 +3,14 @@
 
 #include <atomic>
 #include <cstdint>
+#include <condition_variable>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
+
+#include "pebs_sampler.h"
 
 #include <umf/memory_pool.h>
 
@@ -39,11 +42,19 @@ public:
     // Explicitly triggers a pagemap RSS sample sweep across all site pools
     void samplePeakRss();
 
-    // Exports peak RSS profile data to JSON file
-    void exportProfileJson(const std::string& filepath = "site_rss_profile.json");
+    // Drains in-process PEBS circular buffers and attributes samples to allocation sites
+    void drainPebsSamples();
+
+    // Exports peak RSS and PEBS profile data to JSON file
+    void exportProfileJson(const std::string& profileOut = "profile_data.json",
+                           const std::string& sitesJson = "allocation_sites.json",
+                           const std::string& rssProfileOut = "site_rss_profile.json");
 
     // Returns peak RSS bytes for a given siteId
     size_t getPeakRssBytes(uint32_t siteId) const;
+
+    // Returns access count for a given siteId
+    uint64_t getAccessCount(uint32_t siteId) const;
 
     ~SitePoolManager();
 
@@ -54,14 +65,23 @@ private:
     void stopSamplerThread();
 
     bool m_profilingMode{false};
+    bool m_pebsEnabled{false};
+    std::string m_sitesFile{"allocation_sites.json"};
+    std::string m_profileOut{"profile_data.json"};
     mutable std::mutex m_mutex;
 
     std::unordered_map<uint32_t, umf_memory_pool_handle_t> m_sitePools;
     std::unordered_map<uint32_t, std::vector<AllocRegion>> m_siteRegions;
+    std::unordered_map<uint32_t, std::vector<AllocRegion>> m_historicalRegions;
     std::unordered_map<void*, std::pair<uint32_t, size_t>> m_ptrSiteMap;
     std::unordered_map<uint32_t, size_t> m_peakRssBytes;
+    std::unordered_map<uint32_t, uint64_t> m_accessCounts;
+
+    PebsSampler m_pebsSampler;
 
     std::atomic<bool> m_stopSampler{false};
+    std::condition_variable m_cvSampler;
+    std::mutex m_cvMutex;
     std::thread m_samplerThread;
 };
 
