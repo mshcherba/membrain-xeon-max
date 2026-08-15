@@ -345,13 +345,20 @@ void SitePoolManager::startSamplerThread() {
 
     m_samplerThread = std::thread([this]() {
         std::unique_lock<std::mutex> lock(m_cvMutex);
+        auto lastRssTime = std::chrono::steady_clock::now();
+
         while (!m_stopSampler.load()) {
-            if (m_cvSampler.wait_for(lock, std::chrono::milliseconds(500), [this]() { return m_stopSampler.load(); })) {
+            if (m_cvSampler.wait_for(lock, std::chrono::milliseconds(50), [this]() { return m_stopSampler.load(); })) {
                 break;
             }
             try {
-                this->samplePeakRss();
                 this->drainPebsSamples();
+
+                auto now = std::chrono::steady_clock::now();
+                if (std::chrono::duration_cast<std::chrono::seconds>(now - lastRssTime).count() >= 5) {
+                    this->samplePeakRss();
+                    lastRssTime = now;
+                }
             } catch (...) {}
         }
     });

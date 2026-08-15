@@ -21,7 +21,7 @@ public:
     PebsSampler();
     ~PebsSampler();
 
-    bool init(uint64_t samplePeriod = 512, size_t numDataPages = 16);
+    bool init(uint64_t samplePeriod = 512, size_t numDataPages = 1);
     void start();
     void stop();
     void drainSamples(const std::function<void(uint64_t addr)>& onSample);
@@ -34,7 +34,7 @@ private:
     bool m_enabled{false};
     bool m_running{false};
     uint64_t m_samplePeriod{512};
-    size_t m_numDataPages{16};
+    size_t m_numDataPages{1};
     size_t m_pageSize{4096};
     uint32_t m_targetPid{0};
     std::vector<PerfRingBuffer> m_buffers;
