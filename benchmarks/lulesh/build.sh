@@ -22,7 +22,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 LULESH_DIR="${LULESH_DIR:-$(cd "${MEMBRAIN_ROOT}/.." && pwd)/LULESH}"
 MEMBRAIN_RT="${MEMBRAIN_ROOT}/build/runtime/libmembrain_rt.so"
 
@@ -30,10 +30,10 @@ MEMBRAIN_RT="${MEMBRAIN_ROOT}/build/runtime/libmembrain_rt.so"
 if ! command -v icpx >/dev/null 2>&1 && [ ! -f /opt/intel/oneapi/setvars.sh ]; then
     if [ "$EUID" -eq 0 ]; then
         echo "[INFO] Intel oneAPI compiler not found. Running dependency installation script..."
-        bash "${SCRIPT_DIR}/install_dependencies.sh"
+        bash "${MEMBRAIN_ROOT}/scripts/install_dependencies.sh"
     else
         echo "[ERROR] Intel oneAPI compiler not found. Please install dependencies first:"
-        echo "       sudo bash ${SCRIPT_DIR}/install_dependencies.sh"
+        echo "       sudo bash ${MEMBRAIN_ROOT}/scripts/install_dependencies.sh"
         exit 1
     fi
 fi

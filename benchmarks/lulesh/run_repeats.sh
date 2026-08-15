@@ -25,6 +25,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 NUM_RUNS="${1:-5}"
 MODE="${2:-ddr}"
@@ -43,7 +44,7 @@ if ! [[ "${NUM_RUNS}" =~ ^[0-9]+$ ]] || [ "${NUM_RUNS}" -le 0 ]; then
     exit 1
 fi
 
-SINGLE_SCRIPT="${SCRIPT_DIR}/run_lulesh_single.sh"
+SINGLE_SCRIPT="${SCRIPT_DIR}/run_single.sh"
 
 if [ ! -f "${SINGLE_SCRIPT}" ]; then
     echo "[ERROR] Single run script not found at ${SINGLE_SCRIPT}"

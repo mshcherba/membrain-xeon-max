@@ -17,18 +17,19 @@ import re
 import subprocess
 from datetime import datetime
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
-LULESH_BIN = os.path.join(ROOT_DIR, "..", "LULESH", "build", "lulesh2.0")
+SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
+BENCHMARK_DIR = SCRIPT_DIR
+MEMBRAIN_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../.."))
+LULESH_BIN = os.path.join(MEMBRAIN_ROOT, "..", "LULESH", "build", "lulesh2.0")
 if not os.path.exists(LULESH_BIN):
     print(f"ERROR: LULESH binary not found at '{LULESH_BIN}'. Build LULESH first.", file=sys.stderr)
     sys.exit(1)
 
-GUIDANCE_DIR = os.path.join(ROOT_DIR, "guidance")
-EXP_DIR = os.path.join(ROOT_DIR, "experiments")
-LOG_DIR = os.path.join(EXP_DIR, "logs")
-RESULTS_DIR = os.path.join(EXP_DIR, "results")
-MEMBRAIN_RT = os.path.join(ROOT_DIR, "build", "runtime", "libmembrain_rt.so")
+GUIDANCE_DIR = os.path.join(BENCHMARK_DIR, "guidance")
+EXP_DIR      = os.path.join(BENCHMARK_DIR, "experiments")
+LOG_DIR      = os.path.join(EXP_DIR, "logs")
+RESULTS_DIR  = os.path.join(EXP_DIR, "results")
+MEMBRAIN_RT  = os.path.join(MEMBRAIN_ROOT, "build", "runtime", "libmembrain_rt.so")
 
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -173,7 +174,7 @@ EXPERIMENTS = [
 ]
 
 def set_hbm_capacity(cap_mb):
-    script_path = os.path.join(SCRIPT_DIR, "set_hbm_capacity.sh")
+    script_path = os.path.join(MEMBRAIN_ROOT, "scripts", "set_hbm_capacity.sh")
     arg = "unconstrained" if cap_mb == "unconstrained" else f"{cap_mb:.2f}"
     res = subprocess.run(["bash", script_path, arg], capture_output=True, text=True)
     if res.returncode != 0:
@@ -242,7 +243,7 @@ def measure_max_rss():
 
     log_path = os.path.join(LOG_DIR, "rss_measurement.log")
     with open(log_path, "w") as f_log:
-        proc = subprocess.run(cmd, stdout=f_log, stderr=subprocess.STDOUT, env=env, cwd=ROOT_DIR)
+        proc = subprocess.run(cmd, stdout=f_log, stderr=subprocess.STDOUT, env=env, cwd=MEMBRAIN_ROOT)
 
     if proc.returncode != 0:
         print(f"[RSS Measurement] WARNING: RSS measurement run failed (code {proc.returncode}). "
@@ -296,7 +297,7 @@ def run_experiment(exp, index, total):
             stdout=f_log,
             stderr=subprocess.STDOUT,
             env=env,
-            cwd=ROOT_DIR
+            cwd=MEMBRAIN_ROOT
         )
     elapsed_t = time.time() - start_t
 

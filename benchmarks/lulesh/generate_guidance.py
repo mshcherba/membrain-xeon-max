@@ -11,11 +11,12 @@ import sys
 import json
 import subprocess
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
-PROFILE_PATH = os.path.join(ROOT_DIR, "profile_data.json")
-SITES_PATH = os.path.join(ROOT_DIR, "LULESH", "build", "allocation_sites.json")
-GUIDANCE_DIR = os.path.join(ROOT_DIR, "guidance")
+SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
+BENCHMARK_DIR = SCRIPT_DIR
+MEMBRAIN_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../.."))
+PROFILE_PATH  = os.path.join(BENCHMARK_DIR, "profile_data.json")
+SITES_PATH    = os.path.join(MEMBRAIN_ROOT, "..", "LULESH", "build", "allocation_sites.json")
+GUIDANCE_DIR  = os.path.join(BENCHMARK_DIR, "guidance")
 
 MAX_RSS_KB = 57650856
 MAX_RSS_MB = MAX_RSS_KB / 1024.0  # 56299.664 MB (~56300 MB)
@@ -59,7 +60,7 @@ def generate_static_guidances(sites):
     print(f"[Guidance Generator] Saved HBM-only guidance -> '{os.path.join(GUIDANCE_DIR, 'hbm_only.json')}'")
 
 def generate_optimized_guidances():
-    sys.path.insert(0, os.path.join(ROOT_DIR, "optimizer"))
+    sys.path.insert(0, os.path.join(MEMBRAIN_ROOT, "optimizer"))
     from membrain_opt import (
         load_profile_data,
         run_knapsack_optimization,

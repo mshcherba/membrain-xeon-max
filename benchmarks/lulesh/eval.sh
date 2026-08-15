@@ -17,14 +17,15 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+BENCHMARK_DIR="${SCRIPT_DIR}"
 LULESH_DIR="${LULESH_DIR:-$(cd "${MEMBRAIN_ROOT}/.." && pwd)/LULESH}"
 
 LULESH_BIN="${LULESH_DIR}/build/lulesh2.0"
 
 if [ ! -f "${LULESH_BIN}" ]; then
     echo "[Eval] LULESH binary '${LULESH_BIN}' not found. Building now..."
-    "${SCRIPT_DIR}/build_lulesh.sh"
+    "${SCRIPT_DIR}/build.sh"
 fi
 
 LULESH_ARGS=("$@")
@@ -32,7 +33,7 @@ if [ ${#LULESH_ARGS[@]} -eq 0 ]; then
     LULESH_ARGS=(-s 400 -i 5 -r 11 -b 0 -c 64 -p)
 fi
 
-WORK_DIR="${MEMBRAIN_ROOT}/build/eval_run"
+WORK_DIR="${BENCHMARK_DIR}/build/eval_run"
 mkdir -p "${WORK_DIR}"
 cd "${WORK_DIR}"
 

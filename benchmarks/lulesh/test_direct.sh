@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 LULESH_DIR="${LULESH_DIR:-$(cd "${MEMBRAIN_ROOT}/.." && pwd)/LULESH}"
 LULESH_BIN="${LULESH_DIR}/build/lulesh2.0"
 
