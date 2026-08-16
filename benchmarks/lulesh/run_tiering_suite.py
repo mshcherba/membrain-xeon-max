@@ -284,8 +284,13 @@ def run_experiment(exp, index, total):
         env["LD_PRELOAD"] = MEMBRAIN_RT
 
     log_path = os.path.join(LOG_DIR, f"{exp['id']}.log")
-    cmd = [
-        "numactl", "--cpunodebind=0",
+    numactl_cmd = ["numactl", "--cpunodebind=0"]
+    if exp["strategy"] == "ddr_only":
+        numactl_cmd.extend(["--membind=0"])
+    else:
+        numactl_cmd.extend(["--preferred=2"])
+
+    cmd = numactl_cmd + [
         LULESH_BIN,
         "-s", "400", "-i", "5", "-r", "11", "-b", "0", "-c", "64", "-p"
     ]
