@@ -58,15 +58,17 @@ static bool isFreeCall(CallBase *CB) {
     return name == "free" || name == "cfree" || name.starts_with("_Zdl") || name.starts_with("_Zda");
 }
 
+static bool leadsToAllocation(Function *F, SmallPtrSet<Function*, 16> &visited) {
+    if (!F || F->isDeclaration() || F->isIntrinsic() || F->getName().starts_with("membrain_")) return false;
+    if (!visited.insert(F).second) return false; // Cycle detection
 
-static bool containsAllocationCall(Function &F) {
-    for (BasicBlock &BB : F) {
+    for (BasicBlock &BB : *F) {
         for (Instruction &I : BB) {
             if (auto *CB = dyn_cast<CallBase>(&I)) {
                 if (isAllocationCall(CB)) return true;
                 Value *calledOp = CB->getCalledOperand()->stripPointerCasts();
-                if (Function *CalledF = dyn_cast<Function>(calledOp)) {
-                    if (CalledF->getName().contains("_mbclone_")) return true;
+                if (Function *calledF = dyn_cast<Function>(calledOp)) {
+                    if (leadsToAllocation(calledF, visited)) return true;
                 }
             }
         }
@@ -74,48 +76,101 @@ static bool containsAllocationCall(Function &F) {
     return false;
 }
 
-static bool isCloningCandidate(Function &F) {
-    if (F.isDeclaration() || F.isIntrinsic() || F.getName().starts_with("membrain_")) return false;
-    if (F.getName() == "main" || F.getName().contains("Init")) return false;
-    if (F.size() > 50) return false;
-    return containsAllocationCall(F);
+static bool leadsToAllocation(Function *F) {
+    SmallPtrSet<Function*, 16> visited;
+    return leadsToAllocation(F, visited);
 }
 
+static std::atomic<uint64_t> g_cloneCounter{0};
 
-static void performFunctionCloning(Module &M, uint32_t maxDepth = 4) {
+static Function *cloneFunctionWithSubtree(Function *F,
+                                         uint32_t depthRemaining,
+                                         SmallPtrSet<Function*, 16> &visiting) {
+    if (!F || F->isDeclaration() || F->isIntrinsic() || F->getName().starts_with("membrain_") || F->getName() == "main") {
+        return F;
+    }
+    if (!visiting.insert(F).second) {
+        return F; // Cycle detected: stop cloning down this recursive path
+    }
+
+    ValueToValueMapTy VMap;
+    uint64_t cloneId = ++g_cloneCounter;
+    std::string cloneName = (F->getName() + "_mbclone_" + Twine(cloneId)).str();
+
+    Function *ClonedF = CloneFunction(F, VMap);
+    ClonedF->setName(cloneName);
+    ClonedF->setSubprogram(nullptr);
+
+    // Recursively clone downstream callees that lead to allocation sites
+    if (depthRemaining > 0) {
+        for (BasicBlock &BB : *ClonedF) {
+            for (Instruction &I : BB) {
+                if (auto *CB = dyn_cast<CallBase>(&I)) {
+                    if (isAllocationCall(CB)) continue;
+                    Value *calledOp = CB->getCalledOperand()->stripPointerCasts();
+                    if (Function *calleeF = dyn_cast<Function>(calledOp)) {
+                        if (leadsToAllocation(calleeF)) {
+                            Function *clonedCallee = cloneFunctionWithSubtree(calleeF, depthRemaining - 1, visiting);
+                            if (clonedCallee && clonedCallee != calleeF) {
+                                CB->setCalledFunction(clonedCallee);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    std::vector<BasicBlock*> blocks;
+    for (BasicBlock &BB : *ClonedF) blocks.push_back(&BB);
+    remapInstructionsInBlocks(blocks, VMap);
+
+    visiting.erase(F);
+    return ClonedF;
+}
+
+static void performCallPathFunctionCloning(Module &M, uint32_t maxDepth = 4) {
     for (uint32_t depth = 0; depth < maxDepth; ++depth) {
         std::vector<Function*> funcsToProcess;
         for (Function &F : M) {
-            if (isCloningCandidate(F)) {
+            if (F.isDeclaration() || F.isIntrinsic() || F.getName().starts_with("membrain_") || F.getName() == "main") {
+                continue;
+            }
+            if (leadsToAllocation(&F)) {
                 funcsToProcess.push_back(&F);
             }
         }
 
+        bool madeChanges = false;
         for (Function *F : funcsToProcess) {
             SmallVector<CallBase*, 8> callers;
             for (User *U : F->users()) {
                 if (auto *CB = dyn_cast<CallBase>(U)) {
                     if (CB->getCalledOperand()->stripPointerCasts() == F) {
-                        callers.push_back(CB);
+                        Function *callerFunc = CB->getFunction();
+                        if (callerFunc && !callerFunc->getName().starts_with("membrain_")) {
+                            callers.push_back(CB);
+                        }
                     }
                 }
             }
 
+            // If function has multiple callers, clone function and its subtree for each additional caller
             if (callers.size() > 1) {
                 for (size_t i = 1; i < callers.size(); ++i) {
-                    ValueToValueMapTy VMap;
-                    std::string cloneName = (F->getName() + "_mbclone_" + Twine(i)).str();
-                    Function *ClonedF = CloneFunction(F, VMap);
-                    ClonedF->setName(cloneName);
-                    ClonedF->setSubprogram(nullptr);
-                    std::vector<BasicBlock*> blocks;
-                    for (BasicBlock &BB : *ClonedF) blocks.push_back(&BB);
-                    remapInstructionsInBlocks(blocks, VMap);
-                    callers[i]->setCalledFunction(ClonedF);
-
-
+                    SmallPtrSet<Function*, 16> visiting;
+                    uint32_t remaining = (maxDepth > depth + 1) ? (maxDepth - (depth + 1)) : 0;
+                    Function *ClonedF = cloneFunctionWithSubtree(F, remaining, visiting);
+                    if (ClonedF && ClonedF != F) {
+                        callers[i]->setCalledFunction(ClonedF);
+                        madeChanges = true;
+                    }
                 }
             }
+        }
+
+        if (!madeChanges) {
+            break; // Call graph reached steady state with unique call paths
         }
     }
 }
@@ -126,7 +181,7 @@ static void performFunctionCloning(Module &M, uint32_t maxDepth = 4) {
 struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
     PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
         // Step 1: Perform Call Path Function Cloning (depth n=4)
-        performFunctionCloning(M, 4);
+        performCallPathFunctionCloning(M, 4);
 
 
         // Step 2: Annotate Allocation Sites and Rewrite IR
