@@ -97,6 +97,21 @@ def set_hbm_capacity(cap_mb, dry_run=False):
         print(res.stdout.strip())
 
 
+def drop_system_caches(dry_run=False):
+    """Flush dirty buffers, drop page cache/inodes, and compact memory before benchmark runs."""
+    if dry_run:
+        return
+    try:
+        subprocess.run(
+            ["sudo", "sh", "-c", "sync; echo 3 > /proc/sys/vm/drop_caches; echo 1 > /proc/sys/vm/compact_memory"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+    except Exception:
+        pass
+
+
 class BenchmarkSuiteRunner:
     def __init__(self, benchmark_name, repeats=5, custom_args=None,
                  capacities=None, strategies=None, dry_run=False, skip_rss=False):
@@ -204,6 +219,8 @@ class BenchmarkSuiteRunner:
             "numactl", "--cpunodebind=0", "--membind=2",
             self.binary_path
         ] + self.cli_args
+
+        drop_system_caches(dry_run=self.dry_run)
 
         log_path = os.path.join(self.log_dir, "rss_measurement_hbm_only.log")
         print(f"[RSS Measurement] Executing: {' '.join(cmd)}")
@@ -411,6 +428,9 @@ class BenchmarkSuiteRunner:
         if self.dry_run:
             print(f"  [DRY-RUN] Repetition {run_idx}/{total_runs}: {' '.join(cmd)}")
             return {"fom": 1000.0, "elapsed_sec": 10.0, "log_file": log_file}
+
+        # Flush dirty buffers, drop caches, and compact memory before benchmark timing
+        drop_system_caches(dry_run=self.dry_run)
 
         start_t = time.time()
         with open(log_file, "w") as f_log:
