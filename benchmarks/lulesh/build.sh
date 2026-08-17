@@ -12,7 +12,7 @@
 #   Outputs the unified MemBrain LULESH binary at LULESH/build/lulesh2.0.
 #
 # Usage:
-#   ./scripts/build_lulesh.sh
+#   ./build.sh
 #
 # Environment Variables:
 #   LULESH_DIR - Path to LULESH repository (Default: ../LULESH)
