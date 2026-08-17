@@ -3,3 +3,6 @@ build/
 *.o
 scratch/
 *.json
+!**/config.json
+__pycache__/
+*.pyc
