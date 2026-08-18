@@ -103,7 +103,7 @@ def drop_system_caches(dry_run=False):
         return
     try:
         subprocess.run(
-            ["sudo", "sh", "-c", "sync; echo 3 > /proc/sys/vm/drop_caches; echo 1 > /proc/sys/vm/compact_memory"],
+            ["sudo", "-n", "sh", "-c", "sync; echo 3 > /proc/sys/vm/drop_caches; echo 1 > /proc/sys/vm/compact_memory"],
             capture_output=True,
             text=True,
             check=False
@@ -131,8 +131,22 @@ class BenchmarkSuiteRunner:
         if not os.path.exists(self.config_path):
             raise FileNotFoundError(f"Benchmark config not found: {self.config_path}")
 
+        # Load common configuration if present
+        common_config_path = os.path.join(BENCHMARKS_DIR, "common_config.json")
+        merged_config = {}
+        if os.path.exists(common_config_path):
+            with open(common_config_path, "r") as f:
+                merged_config = json.load(f)
+
         with open(self.config_path, "r") as f:
-            self.config = json.load(f)
+            bench_config = json.load(f)
+
+        self.config = {**merged_config, **bench_config}
+        if "environment" in merged_config or "environment" in bench_config:
+            self.config["environment"] = {
+                **merged_config.get("environment", {}),
+                **bench_config.get("environment", {})
+            }
 
         # Resolve binary path
         raw_bin = self.config.get("binary_path", "")
@@ -156,23 +170,14 @@ class BenchmarkSuiteRunner:
         metrics = {}
         patterns = self.config.get("patterns", {})
 
-        # Primary FOM metric
-        fom_pat = patterns.get("fom", r"FOM\s*=\s*([\d\.]+)")
-        fom_m = re.search(fom_pat, output, re.IGNORECASE)
-        if fom_m:
-            metrics["fom"] = float(fom_m.group(1))
-
-        # Elapsed execution time (auxiliary)
-        elapsed_pat = patterns.get("elapsed_sec", r"Elapsed time\s*=\s*([\d\.e\+\-]+)")
-        el_m = re.search(elapsed_pat, output, re.IGNORECASE)
-        if el_m:
-            metrics["elapsed_sec"] = float(el_m.group(1))
-
-        # Grind time if available
-        grind_pat = patterns.get("grind_time_us", r"Grind time.*=\s*([\d\.]+)")
-        gr_m = re.search(grind_pat, output, re.IGNORECASE)
-        if gr_m:
-            metrics["grind_time_us"] = float(gr_m.group(1))
+        # Parse all configured regex patterns (fom, elapsed_sec, grind_time_us, construction_time, etc.)
+        for metric_name, pat in patterns.items():
+            m = re.search(pat, output, re.IGNORECASE)
+            if m:
+                try:
+                    metrics[metric_name] = float(m.group(1))
+                except (ValueError, IndexError):
+                    pass
 
         # Peak RSS from /usr/bin/time -v
         rss_m = re.search(r"Maximum resident set size \(kbytes\):\s*([\d]+)", output, re.IGNORECASE)
@@ -186,6 +191,13 @@ class BenchmarkSuiteRunner:
             metrics["wall_clock_str"] = wall_m.group(1).strip()
 
         return metrics
+
+    def _build_execution_env(self):
+        """Construct process execution environment with configured benchmark settings."""
+        env = os.environ.copy()
+        for k, v in self.config.get("environment", {}).items():
+            env[k] = str(v)
+        return env
 
     def measure_peak_rss(self):
         """
@@ -208,11 +220,22 @@ class BenchmarkSuiteRunner:
             print("[DRY-RUN] Measuring peak RSS on HBM-only pass...")
             return self.config.get("default_max_rss_kb", 57650856)
 
+        log_path = os.path.join(self.log_dir, "rss_measurement_hbm_only.log")
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r") as f_log:
+                    output = f_log.read()
+                metrics = self.parse_metrics(output)
+                peak_kb = metrics.get("max_rss_kb")
+                if peak_kb:
+                    print(f"[RSS Measurement] Found existing RSS measurement log -> Peak RSS = {peak_kb:,} KB ({peak_kb / 1024:.1f} MB)")
+                    return peak_kb
+            except Exception:
+                pass
+
         set_hbm_capacity("unconstrained", dry_run=False)
 
-        env = os.environ.copy()
-        for k, v in self.config.get("environment", {}).items():
-            env[k] = str(v)
+        env = self._build_execution_env()
 
         cmd = [
             "/usr/bin/time", "-v",
@@ -222,7 +245,6 @@ class BenchmarkSuiteRunner:
 
         drop_system_caches(dry_run=self.dry_run)
 
-        log_path = os.path.join(self.log_dir, "rss_measurement_hbm_only.log")
         print(f"[RSS Measurement] Executing: {' '.join(cmd)}")
         with open(log_path, "w") as f_log:
             proc = subprocess.run(cmd, stdout=f_log, stderr=subprocess.STDOUT, env=env, cwd=MEMBRAIN_ROOT)
@@ -266,21 +288,24 @@ class BenchmarkSuiteRunner:
                 sites_path = os.path.abspath(os.path.join(self.bench_dir, raw_sites))
 
         # 1. Generate hbm_only.json
-        sites_for_static = []
-        if os.path.exists(profile_path):
-            with open(profile_path, "r") as f:
-                sites_for_static = json.load(f)
-        elif os.path.exists(sites_path):
-            with open(sites_path, "r") as f:
-                sites_for_static = json.load(f)
-        else:
-            raise FileNotFoundError(f"Neither profile_data.json nor allocation_sites.json found for {self.benchmark_name}")
-
-        hbm_guidance = [{"site_id": s["site_id"], "tier": 2} for s in sites_for_static]
         hbm_only_path = os.path.join(self.guidance_dir, "hbm_only.json")
-        with open(hbm_only_path, "w") as f:
-            json.dump(hbm_guidance, f, indent=2)
-        print(f"[Guidance] Saved HBM-only guidance -> '{hbm_only_path}'")
+        if os.path.exists(hbm_only_path):
+            print(f"[Guidance] Found existing HBM-only guidance -> '{hbm_only_path}'")
+        else:
+            sites_for_static = []
+            if os.path.exists(profile_path):
+                with open(profile_path, "r") as f:
+                    sites_for_static = json.load(f)
+            elif os.path.exists(sites_path):
+                with open(sites_path, "r") as f:
+                    sites_for_static = json.load(f)
+            else:
+                raise FileNotFoundError(f"Neither profile_data.json nor allocation_sites.json found for {self.benchmark_name}")
+
+            hbm_guidance = [{"site_id": s["site_id"], "tier": 2} for s in sites_for_static]
+            with open(hbm_only_path, "w") as f:
+                json.dump(hbm_guidance, f, indent=2)
+            print(f"[Guidance] Saved HBM-only guidance -> '{hbm_only_path}'")
 
         # 2. Generate Optimizer Guidances (knapsack, hotset, thermos) for each capacity
         sys.path.insert(0, os.path.join(MEMBRAIN_ROOT, "optimizer"))
@@ -292,10 +317,7 @@ class BenchmarkSuiteRunner:
             save_guidance_json
         )
 
-        if not os.path.exists(profile_path):
-            raise FileNotFoundError(f"profile_data.json not found at '{profile_path}'. Run profile.sh first.")
-
-        profile_sites = load_profile_data(profile_path)
+        profile_sites = None
         for pct in self.capacities:
             cap_mb = peak_rss_mb * (pct / 100.0)
             cap_bytes = int(cap_mb * 1024 * 1024)
@@ -303,19 +325,44 @@ class BenchmarkSuiteRunner:
             cap_dir = os.path.join(self.guidance_dir, cap_key)
             os.makedirs(cap_dir, exist_ok=True)
 
+            knap_path = os.path.join(cap_dir, "knapsack.json")
+            hot_path = os.path.join(cap_dir, "hotset.json")
+            therm_path = os.path.join(cap_dir, "thermos.json")
+
+            if os.path.exists(knap_path) and os.path.exists(hot_path) and os.path.exists(therm_path):
+                print(f"[Guidance] All guidance files for Capacity {pct}% already exist in '{cap_dir}' -> skipping.")
+                continue
+
+            if profile_sites is None:
+                if not os.path.exists(profile_path):
+                    raise FileNotFoundError(
+                        f"[FATAL] Required profile data file '{profile_path}' not found for benchmark '{self.benchmark_name}'. "
+                        f"Cannot generate tiering guidance without profiling data. Please run profile.sh first."
+                    )
+                profile_sites = load_profile_data(profile_path)
+
             print(f"[Guidance] Generating for Capacity {pct}% ({cap_mb:.1f} MB)...")
 
             # Knapsack
-            knap_g, _ = run_knapsack_optimization(profile_sites, cap_bytes)
-            save_guidance_json(knap_g, os.path.join(cap_dir, "knapsack.json"))
+            if not os.path.exists(knap_path):
+                knap_g, _ = run_knapsack_optimization(profile_sites, cap_bytes)
+                save_guidance_json(knap_g, knap_path)
+            else:
+                print(f"[Guidance] Found existing '{knap_path}' -> skipping.")
 
             # Hotset
-            hot_g, _ = run_hotset_optimization(profile_sites, cap_bytes)
-            save_guidance_json(hot_g, os.path.join(cap_dir, "hotset.json"))
+            if not os.path.exists(hot_path):
+                hot_g, _ = run_hotset_optimization(profile_sites, cap_bytes)
+                save_guidance_json(hot_g, hot_path)
+            else:
+                print(f"[Guidance] Found existing '{hot_path}' -> skipping.")
 
             # Thermos
-            therm_g, _ = run_thermos_optimization(profile_sites, cap_bytes)
-            save_guidance_json(therm_g, os.path.join(cap_dir, "thermos.json"))
+            if not os.path.exists(therm_path):
+                therm_g, _ = run_thermos_optimization(profile_sites, cap_bytes)
+                save_guidance_json(therm_g, therm_path)
+            else:
+                print(f"[Guidance] Found existing '{therm_path}' -> skipping.")
 
     def build_experiments(self, peak_rss_kb):
         """Construct the 14 experiment configurations according to user specifications."""
@@ -400,9 +447,7 @@ class BenchmarkSuiteRunner:
 
     def run_single_iteration(self, exp, run_idx, total_runs):
         """Execute a single repetition of an experiment configuration."""
-        env = os.environ.copy()
-        for k, v in self.config.get("environment", {}).items():
-            env[k] = str(v)
+        env = self._build_execution_env()
 
         if exp["use_runtime"] and os.path.exists(MEMBRAIN_RT):
             env["LD_PRELOAD"] = MEMBRAIN_RT
