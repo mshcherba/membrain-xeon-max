@@ -45,9 +45,7 @@ class TestBenchmarkSuiteStats(unittest.TestCase):
     def test_lulesh_config_loading(self):
         runner = BenchmarkSuiteRunner(
             benchmark_name="lulesh",
-            repeats=2,
-            dry_run=True,
-            skip_rss=True
+            repeats=2
         )
         self.assertEqual(runner.repeats, 2)
         self.assertEqual(runner.fom_unit, "z/s")
@@ -72,9 +70,7 @@ class TestBenchmarkSuiteStats(unittest.TestCase):
     def test_bfs_config_loading(self):
         runner = BenchmarkSuiteRunner(
             benchmark_name="bfs",
-            repeats=3,
-            dry_run=True,
-            skip_rss=True
+            repeats=3
         )
         self.assertEqual(runner.repeats, 3)
         self.assertEqual(runner.fom_unit, "TEPS")
@@ -88,9 +84,7 @@ class TestBenchmarkSuiteStats(unittest.TestCase):
 
     def test_bfs_metric_parsing(self):
         runner = BenchmarkSuiteRunner(
-            benchmark_name="bfs",
-            dry_run=True,
-            skip_rss=True
+            benchmark_name="bfs"
         )
         sample_output = """
         construction_time:              4.123456 s

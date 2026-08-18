@@ -83,12 +83,8 @@ def compute_statistics(values, confidence=0.95):
     }
 
 
-def set_hbm_capacity(cap_mb, dry_run=False):
+def set_hbm_capacity(cap_mb):
     """Configure HBM capacity via set_hbm_capacity.sh hugepages reservation."""
-    if dry_run:
-        print(f"[DRY-RUN] set_hbm_capacity.sh -> {cap_mb}")
-        return
-
     arg = "unconstrained" if cap_mb == "unconstrained" else f"{cap_mb:.2f}"
     res = subprocess.run(["bash", CAPACITY_SCRIPT, arg], capture_output=True, text=True)
     if res.returncode != 0:
@@ -97,13 +93,11 @@ def set_hbm_capacity(cap_mb, dry_run=False):
         print(res.stdout.strip())
 
 
-def drop_system_caches(dry_run=False):
+def drop_system_caches():
     """Flush dirty buffers, drop page cache/inodes, and compact memory before benchmark runs."""
-    if dry_run:
-        return
     try:
         subprocess.run(
-            ["sudo", "-n", "sh", "-c", "sync; echo 3 > /proc/sys/vm/drop_caches; echo 1 > /proc/sys/vm/compact_memory"],
+            ["sudo", "sh", "-c", "sync; echo 3 > /proc/sys/vm/drop_caches; echo 1 > /proc/sys/vm/compact_memory"],
             capture_output=True,
             text=True,
             check=False
@@ -114,14 +108,12 @@ def drop_system_caches(dry_run=False):
 
 class BenchmarkSuiteRunner:
     def __init__(self, benchmark_name, repeats=5, custom_args=None,
-                 capacities=None, strategies=None, dry_run=False, skip_rss=False):
+                 capacities=None, strategies=None):
         self.benchmark_name = benchmark_name
         self.repeats = repeats
         self.custom_args = custom_args
         self.capacities = capacities or [12.5, 25.0, 50.0]
         self.strategies = strategies or ["first-touch", "knapsack", "hotset", "thermos"]
-        self.dry_run = dry_run
-        self.skip_rss = skip_rss
 
         self.bench_dir = os.path.join(BENCHMARKS_DIR, benchmark_name)
         if not os.path.exists(self.bench_dir):
@@ -209,17 +201,6 @@ class BenchmarkSuiteRunner:
         print(" Running HBM-only pass with /usr/bin/time -v to measure Maximum Resident Set Size...")
         print("=" * 80)
 
-        if self.skip_rss:
-            peak_kb = self.config.get("default_max_rss_kb")
-            if not peak_kb:
-                raise ValueError("default_max_rss_kb not defined in config.json while --skip-rss was requested.")
-            print(f"[RSS Measurement] Skipped measurement via flag. Using config RSS: {peak_kb:,} KB ({peak_kb / 1024:.1f} MB)")
-            return peak_kb
-
-        if self.dry_run:
-            print("[DRY-RUN] Measuring peak RSS on HBM-only pass...")
-            return self.config.get("default_max_rss_kb", 57650856)
-
         log_path = os.path.join(self.log_dir, "rss_measurement_hbm_only.log")
         if os.path.exists(log_path):
             try:
@@ -233,7 +214,7 @@ class BenchmarkSuiteRunner:
             except Exception:
                 pass
 
-        set_hbm_capacity("unconstrained", dry_run=False)
+        set_hbm_capacity("unconstrained")
 
         env = self._build_execution_env()
 
@@ -243,7 +224,7 @@ class BenchmarkSuiteRunner:
             self.binary_path
         ] + self.cli_args
 
-        drop_system_caches(dry_run=self.dry_run)
+        drop_system_caches()
 
         print(f"[RSS Measurement] Executing: {' '.join(cmd)}")
         with open(log_path, "w") as f_log:
@@ -272,10 +253,6 @@ class BenchmarkSuiteRunner:
         print("\n" + "=" * 80)
         print(" [Phase 2: Guidance File Generation]")
         print("=" * 80)
-
-        if self.dry_run:
-            print("[DRY-RUN] Skipping physical guidance file creation in dry-run mode.")
-            return
 
         peak_rss_mb = peak_rss_kb / 1024.0
 
@@ -470,12 +447,8 @@ class BenchmarkSuiteRunner:
         cmd = numactl_cmd + [self.binary_path] + self.cli_args
         log_file = os.path.join(self.log_dir, f"{exp['id']}_run{run_idx}.log")
 
-        if self.dry_run:
-            print(f"  [DRY-RUN] Repetition {run_idx}/{total_runs}: {' '.join(cmd)}")
-            return {"fom": 1000.0, "elapsed_sec": 10.0, "log_file": log_file}
-
         # Flush dirty buffers, drop caches, and compact memory before benchmark timing
-        drop_system_caches(dry_run=self.dry_run)
+        drop_system_caches()
 
         start_t = time.time()
         with open(log_file, "w") as f_log:
@@ -503,8 +476,7 @@ class BenchmarkSuiteRunner:
     def run_suite(self):
         """Execute complete 14-configuration benchmark suite with repetitions."""
         if not os.path.exists(self.binary_path):
-            if not self.dry_run:
-                raise FileNotFoundError(f"Benchmark binary not found at '{self.binary_path}'. Build the benchmark first.")
+            raise FileNotFoundError(f"Benchmark binary not found at '{self.binary_path}'. Build the benchmark first.")
 
         print("=" * 80)
         print(f" MemBrain Benchmark Suite: {self.config.get('name', self.benchmark_name)}")
@@ -540,7 +512,7 @@ class BenchmarkSuiteRunner:
                 # Adjust HBM capacity only when it changes
                 target_cap = exp["capacity_mb"]
                 if target_cap != current_cap_mb:
-                    set_hbm_capacity(target_cap, dry_run=self.dry_run)
+                    set_hbm_capacity(target_cap)
                     current_cap_mb = target_cap
 
                 fom_runs = []
@@ -574,7 +546,7 @@ class BenchmarkSuiteRunner:
 
         finally:
             print("\n[Cleanup] Restoring HBM capacity to UNCONSTRAINED...")
-            set_hbm_capacity("unconstrained", dry_run=self.dry_run)
+            set_hbm_capacity("unconstrained")
 
         # 4. Statistical Post-Processing & Report Generation
         self.generate_reports(results, peak_rss_kb)
@@ -696,8 +668,6 @@ def main():
     parser.add_argument("--repeats", "-r", type=int, default=5, help="Number of repetitions per configuration (default: 5)")
     parser.add_argument("--capacities", "-c", nargs="+", type=float, default=[12.5, 25.0, 50.0], help="HBM capacity percentages (default: 12.5 25.0 50.0)")
     parser.add_argument("--strategies", "-s", nargs="+", default=["first-touch", "knapsack", "hotset", "thermos"], help="Strategies to run (default: first-touch knapsack hotset thermos)")
-    parser.add_argument("--skip-rss", action="store_true", help="Skip dedicated RSS measurement run and use default from config")
-    parser.add_argument("--dry-run", action="store_true", help="Print experiment execution commands without running them")
     parser.add_argument("bench_args", nargs="*", help="Optional override arguments passed directly to the benchmark binary")
 
     args = parser.parse_args()
@@ -708,9 +678,7 @@ def main():
         repeats=args.repeats,
         custom_args=custom_args,
         capacities=args.capacities,
-        strategies=args.strategies,
-        dry_run=args.dry_run,
-        skip_rss=args.skip_rss
+        strategies=args.strategies
     )
     runner.run_suite()
 

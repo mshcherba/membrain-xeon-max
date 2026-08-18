@@ -2,7 +2,6 @@
   "name": "LULESH 2.0 (Livermore Unstructured Lagrangian Explicit Shock Hydrodynamics)",
   "binary_path": "../../../LULESH/build/lulesh2.0",
   "allocation_sites_path": "../../../LULESH/build/allocation_sites.json",
-  "default_max_rss_kb": 57650856,
   "fom_unit": "z/s",
   "default_args": [
     "-s", "400",
