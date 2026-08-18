@@ -119,23 +119,55 @@ void PebsSampler::drainSamples(const std::function<void(uint64_t addr)>& onSampl
 
         auto *dataBase = reinterpret_cast<char *>(b.base) + m_pageSize;
 
+        if (head - tail > dataSize) {
+            // Buffer overrun occurred: catch up tail to avoid parsing overwritten/corrupted data
+            tail = head;
+            header->data_tail = tail;
+            continue;
+        }
+
         while (tail < head) {
             uint64_t offset = tail % dataSize;
-            auto *ev = reinterpret_cast<struct perf_event_header *>(dataBase + offset);
+            
+            // Read perf_event_header safely (handling wrap across ring buffer boundary)
+            struct perf_event_header ev;
+            if (offset + sizeof(ev) <= dataSize) {
+                std::memcpy(&ev, dataBase + offset, sizeof(ev));
+            } else {
+                size_t part1 = dataSize - offset;
+                size_t part2 = sizeof(ev) - part1;
+                std::memcpy(&ev, dataBase + offset, part1);
+                std::memcpy(reinterpret_cast<char*>(&ev) + part1, dataBase, part2);
+            }
 
-            if (ev->size == 0) break; // Avoid infinite loop on malformed record
+            // Validate event size to prevent infinite loop or memory corruption
+            if (ev.size < sizeof(struct perf_event_header) || ev.size > 2048) {
+                tail = head;
+                break;
+            }
 
-            if (ev->type == PERF_RECORD_SAMPLE) {
-                const auto *sample = reinterpret_cast<const SampleRecord *>(
-                    reinterpret_cast<const char *>(ev) + sizeof(struct perf_event_header)
-                );
-                if (sample->pid == m_targetPid && sample->addr != 0) {
-                    onSample(sample->addr);
+            if (ev.type == PERF_RECORD_SAMPLE) {
+                // Read SampleRecord safely across possible ring buffer wrap
+                SampleRecord sample;
+                size_t headerSize = sizeof(struct perf_event_header);
+                size_t recordOffset = (offset + headerSize) % dataSize;
+
+                if (recordOffset + sizeof(SampleRecord) <= dataSize) {
+                    std::memcpy(&sample, dataBase + recordOffset, sizeof(SampleRecord));
+                } else {
+                    size_t part1 = dataSize - recordOffset;
+                    size_t part2 = sizeof(SampleRecord) - part1;
+                    std::memcpy(&sample, dataBase + recordOffset, part1);
+                    std::memcpy(reinterpret_cast<char*>(&sample) + part1, dataBase, part2);
+                }
+
+                if (sample.pid == m_targetPid && sample.addr != 0) {
+                    onSample(sample.addr);
                     m_totalSamples++;
                 }
             }
 
-            tail += ev->size;
+            tail += ev.size;
         }
 
         header->data_tail = tail;

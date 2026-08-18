@@ -21,7 +21,7 @@ public:
     PebsSampler();
     ~PebsSampler();
 
-    bool init(uint64_t samplePeriod = 512, size_t numDataPages = 1);
+    bool init(uint64_t samplePeriod = 512, size_t numDataPages = 256);
     void start();
     void stop();
     void drainSamples(const std::function<void(uint64_t addr)>& onSample);

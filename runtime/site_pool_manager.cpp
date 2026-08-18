@@ -186,22 +186,40 @@ void SitePoolManager::samplePeakRss() {
 void SitePoolManager::drainPebsSamples() {
     if (!m_pebsSampler.isEnabled()) return;
 
-    std::unordered_map<uint32_t, std::vector<AllocRegion>> regionsSnapshot;
+    struct FlatInterval {
+        uintptr_t start;
+        uintptr_t end;
+        uint32_t siteId;
+    };
+
+    std::vector<FlatInterval> flatRegions;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        regionsSnapshot = m_historicalRegions.empty() ? m_siteRegions : m_historicalRegions;
+        const auto& sourceMap = m_historicalRegions.empty() ? m_siteRegions : m_historicalRegions;
+        for (const auto& kv : sourceMap) {
+            for (const auto& reg : kv.second) {
+                flatRegions.push_back({reg.start, reg.end, kv.first});
+            }
+        }
     }
+
+    if (flatRegions.empty()) return;
+
+    std::sort(flatRegions.begin(), flatRegions.end(), [](const FlatInterval& a, const FlatInterval& b) {
+        return a.start < b.start;
+    });
 
     std::unordered_map<uint32_t, uint64_t> batchCounts;
 
     m_pebsSampler.drainSamples([&](uint64_t addr) {
-        for (const auto& entry : regionsSnapshot) {
-            uint32_t siteId = entry.first;
-            for (const auto& reg : entry.second) {
-                if (addr >= reg.start && addr < reg.end) {
-                    batchCounts[siteId]++;
-                    return;
-                }
+        auto it = std::upper_bound(flatRegions.begin(), flatRegions.end(), addr,
+            [](uint64_t val, const FlatInterval& item) {
+                return val < item.start;
+            });
+        if (it != flatRegions.begin()) {
+            --it;
+            if (addr >= it->start && addr < it->end) {
+                batchCounts[it->siteId]++;
             }
         }
     });
