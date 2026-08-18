@@ -194,6 +194,15 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
         FunctionType *hookTy = FunctionType::get(ptrTy, {sizeTy, int32Ty}, false);
         FunctionCallee membrainAllocCallee = M.getOrInsertFunction("membrain_alloc", hookTy);
 
+        FunctionType *callocHookTy = FunctionType::get(ptrTy, {sizeTy, sizeTy, int32Ty}, false);
+        FunctionCallee membrainCallocCallee = M.getOrInsertFunction("membrain_calloc", callocHookTy);
+
+        FunctionType *reallocHookTy = FunctionType::get(ptrTy, {ptrTy, sizeTy, int32Ty}, false);
+        FunctionCallee membrainReallocCallee = M.getOrInsertFunction("membrain_realloc", reallocHookTy);
+
+        FunctionType *alignedAllocHookTy = FunctionType::get(ptrTy, {sizeTy, sizeTy, int32Ty}, false);
+        FunctionCallee membrainAlignedAllocCallee = M.getOrInsertFunction("membrain_aligned_alloc", alignedAllocHookTy);
+
         FunctionType *posixMemalignHookTy = FunctionType::get(int32Ty, {ptrTy, sizeTy, sizeTy, int32Ty}, false);
         FunctionCallee membrainPosixMemalignCallee = M.getOrInsertFunction("membrain_posix_memalign", posixMemalignHookTy);
 
@@ -267,6 +276,66 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
                             newCall->setDebugLoc(CB->getDebugLoc());
 
                             CB->replaceAllUsesWith(newCall);
+                            CB->eraseFromParent();
+                            modified = true;
+                        } else if (funcName == "calloc") {
+                            Value *numVal = Builder.CreateZExtOrTrunc(CB->getArgOperand(0), sizeTy);
+                            Value *sizeVal = Builder.CreateZExtOrTrunc(CB->getArgOperand(1), sizeTy);
+
+                            newCall = Builder.CreateCall(membrainCallocCallee, {numVal, sizeVal, siteIdVal});
+                            newCall->setDebugLoc(CB->getDebugLoc());
+
+                            Value *replacementVal = newCall;
+                            if (newCall->getType() != CB->getType()) {
+                                if (CB->getType()->isPointerTy()) {
+                                    replacementVal = Builder.CreateBitCast(newCall, CB->getType());
+                                } else if (CB->getType()->isIntegerTy()) {
+                                    replacementVal = Builder.CreatePtrToInt(newCall, CB->getType());
+                                }
+                            }
+
+                            CB->replaceAllUsesWith(replacementVal);
+                            CB->eraseFromParent();
+                            modified = true;
+                        } else if (funcName == "realloc") {
+                            Value *ptrVal = CB->getArgOperand(0);
+                            if (ptrVal->getType() != ptrTy) {
+                                ptrVal = Builder.CreateBitCast(ptrVal, ptrTy);
+                            }
+                            Value *sizeVal = Builder.CreateZExtOrTrunc(CB->getArgOperand(1), sizeTy);
+
+                            newCall = Builder.CreateCall(membrainReallocCallee, {ptrVal, sizeVal, siteIdVal});
+                            newCall->setDebugLoc(CB->getDebugLoc());
+
+                            Value *replacementVal = newCall;
+                            if (newCall->getType() != CB->getType()) {
+                                if (CB->getType()->isPointerTy()) {
+                                    replacementVal = Builder.CreateBitCast(newCall, CB->getType());
+                                } else if (CB->getType()->isIntegerTy()) {
+                                    replacementVal = Builder.CreatePtrToInt(newCall, CB->getType());
+                                }
+                            }
+
+                            CB->replaceAllUsesWith(replacementVal);
+                            CB->eraseFromParent();
+                            modified = true;
+                        } else if (funcName == "aligned_alloc") {
+                            Value *alignVal = Builder.CreateZExtOrTrunc(CB->getArgOperand(0), sizeTy);
+                            Value *sizeVal = Builder.CreateZExtOrTrunc(CB->getArgOperand(1), sizeTy);
+
+                            newCall = Builder.CreateCall(membrainAlignedAllocCallee, {alignVal, sizeVal, siteIdVal});
+                            newCall->setDebugLoc(CB->getDebugLoc());
+
+                            Value *replacementVal = newCall;
+                            if (newCall->getType() != CB->getType()) {
+                                if (CB->getType()->isPointerTy()) {
+                                    replacementVal = Builder.CreateBitCast(newCall, CB->getType());
+                                } else if (CB->getType()->isIntegerTy()) {
+                                    replacementVal = Builder.CreatePtrToInt(newCall, CB->getType());
+                                }
+                            }
+
+                            CB->replaceAllUsesWith(replacementVal);
                             CB->eraseFromParent();
                             modified = true;
                         } else {

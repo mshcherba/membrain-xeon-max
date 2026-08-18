@@ -10,6 +10,9 @@ extern "C" {
 
 void membrain_init(void);
 void *membrain_alloc(size_t size, uint32_t site_id);
+void *membrain_calloc(size_t num, size_t size, uint32_t site_id);
+void *membrain_realloc(void *ptr, size_t size, uint32_t site_id);
+void *membrain_aligned_alloc(size_t alignment, size_t size, uint32_t site_id);
 int membrain_posix_memalign(void **memptr, size_t alignment, size_t size, uint32_t site_id);
 void membrain_free(void *ptr);
 

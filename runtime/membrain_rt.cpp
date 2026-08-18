@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -213,6 +214,54 @@ void membrain_free(void *ptr) {
         }
         umfFree(ptr);
     }
+}
+
+void *membrain_calloc(size_t num, size_t size, uint32_t site_id) {
+    size_t total = num * size;
+    void *ptr = membrain_alloc(total, site_id);
+    if (ptr && total > 0) {
+        std::memset(ptr, 0, total);
+    }
+    return ptr;
+}
+
+void *membrain_realloc(void *ptr, size_t size, uint32_t site_id) {
+    if (!ptr) return membrain_alloc(size, site_id);
+    if (size == 0) {
+        membrain_free(ptr);
+        return nullptr;
+    }
+
+    membrain_init();
+    auto& siteMgr = membrain::SitePoolManager::instance();
+    void *newPtr = nullptr;
+
+    if (siteMgr.isProfilingMode()) {
+        umf_memory_pool_handle_t sitePool = siteMgr.getOrCreateSitePool(site_id);
+        newPtr = sitePool ? umfPoolRealloc(sitePool, ptr, size) : nullptr;
+        if (newPtr) {
+            if (newPtr != ptr) {
+                siteMgr.unregisterAllocation(ptr);
+            }
+            siteMgr.registerAllocation(site_id, newPtr, size);
+        }
+    } else {
+        int targetNode = getTargetNode(site_id);
+        umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
+        newPtr = umfPoolRealloc(targetPool, ptr, size);
+    }
+
+    if (newPtr) {
+        trackAllocation(newPtr, size, site_id, "realloc");
+    }
+    return newPtr;
+}
+
+void *membrain_aligned_alloc(size_t alignment, size_t size, uint32_t site_id) {
+    void *ptr = nullptr;
+    int err = membrain_posix_memalign(&ptr, alignment, size, site_id);
+    if (err != 0) return nullptr;
+    return ptr;
 }
 
 int membrain_posix_memalign(void **memptr, size_t alignment, size_t size, uint32_t site_id) {
