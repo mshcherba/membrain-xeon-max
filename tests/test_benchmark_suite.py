@@ -69,6 +69,41 @@ class TestBenchmarkSuiteStats(unittest.TestCase):
         self.assertEqual(ft_cfg["strategy"], "first-touch")
         self.assertEqual(ft_cfg["numa_mode"], "preferred_2")
 
+    def test_bfs_config_loading(self):
+        runner = BenchmarkSuiteRunner(
+            benchmark_name="bfs",
+            repeats=3,
+            dry_run=True,
+            skip_rss=True
+        )
+        self.assertEqual(runner.repeats, 3)
+        self.assertEqual(runner.fom_unit, "TEPS")
+        self.assertEqual(runner.cli_args, ["25", "-A", "-C", "-n", "64"])
+        # Verify common environment variables inherited
+        self.assertEqual(runner.config.get("environment", {}).get("OMP_NUM_THREADS"), "32")
+        self.assertEqual(runner.config.get("environment", {}).get("KMP_AFFINITY"), "granularity=fine,compact,1,0")
+
+        exps = runner.build_experiments(peak_rss_kb=30000000)
+        self.assertEqual(len(exps), 14)
+
+    def test_bfs_metric_parsing(self):
+        runner = BenchmarkSuiteRunner(
+            benchmark_name="bfs",
+            dry_run=True,
+            skip_rss=True
+        )
+        sample_output = """
+        construction_time:              4.123456 s
+        Running BFS 0
+        Time for BFS 0 is 0.051234
+        harmonic_mean_TEPS:             1.23456789e+08
+        Maximum resident set size (kbytes): 1234567
+        """
+        metrics = runner.parse_metrics(sample_output)
+        self.assertAlmostEqual(metrics["fom"], 1.23456789e+08)
+        self.assertAlmostEqual(metrics["construction_time"], 4.123456)
+        self.assertEqual(metrics["max_rss_kb"], 1234567)
+
 
 if __name__ == "__main__":
     unittest.main()

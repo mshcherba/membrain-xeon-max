@@ -1,0 +1,18 @@
+{
+  "name": "Graph500-BFS (Breadth-First Search)",
+  "binary_path": "../../../Graph500-BFS/mpi/runnable",
+  "allocation_sites_path": "../../../Graph500-BFS/mpi/allocation_sites.json",
+  "default_max_rss_kb": 46863856,
+  "fom_unit": "TEPS",
+  "default_args": [
+    "25",
+    "-A",
+    "-C",
+    "-n", "64"
+  ],
+  "patterns": {
+    "fom": "harmonic_mean_TEPS:\\s*([\\d\\.e\\+\\-]+)",
+    "elapsed_sec": "Time for BFS.*is\\s*([\\d\\.e\\+\\-]+)",
+    "construction_time": "construction_time:\\s*([\\d\\.e\\+\\-]+)"
+  }
+}
