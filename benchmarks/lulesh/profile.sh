@@ -16,8 +16,8 @@ if [ -f /opt/intel/oneapi/setvars.sh ]; then
     source /opt/intel/oneapi/setvars.sh > /dev/null 2>&1 || true
 fi
 
-export OMP_NUM_THREADS="${OMP_NUM_THREADS:-32}"
-export KMP_AFFINITY="${KMP_AFFINITY:-granularity=fine,compact,1,0}"
+# Load common OpenMP & affinity environment settings
+source "${MEMBRAIN_ROOT}/benchmarks/common_env.sh"
 
 LULESH_ARGS=("$@")
 if [ ${#LULESH_ARGS[@]} -eq 0 ]; then

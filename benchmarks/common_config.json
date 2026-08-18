@@ -1,0 +1,6 @@
+{
+  "environment": {
+    "OMP_NUM_THREADS": "32",
+    "KMP_AFFINITY": "granularity=fine,compact,1,0"
+  }
+}

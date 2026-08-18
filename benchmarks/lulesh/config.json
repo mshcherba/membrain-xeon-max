@@ -12,10 +12,6 @@
     "-c", "64",
     "-p"
   ],
-  "environment": {
-    "OMP_NUM_THREADS": "32",
-    "KMP_AFFINITY": "granularity=fine,compact,1,0"
-  },
   "patterns": {
     "fom": "FOM\\s*=\\s*([\\d\\.]+)",
     "elapsed_sec": "Elapsed time\\s*=\\s*([\\d\\.e\\+\\-]+)",

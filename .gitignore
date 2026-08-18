@@ -4,5 +4,6 @@ build/
 scratch/
 *.json
 !**/config.json
+!**/common_config.json
 __pycache__/
 *.pyc
