@@ -411,9 +411,15 @@ extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo llvmGetPassPluginIn
     return {
         LLVM_PLUGIN_API_VERSION, "MemBrainPass", "v1.0",
         [](PassBuilder &PB) {
-            PB.registerPipelineStartEPCallback(
+            PB.registerOptimizerLastEPCallback(
                 [](ModulePassManager &MPM, OptimizationLevel Level) {
                     MPM.addPass(MemBrainPass());
+                });
+            PB.registerPipelineStartEPCallback(
+                [](ModulePassManager &MPM, OptimizationLevel Level) {
+                    if (Level == OptimizationLevel::O0) {
+                        MPM.addPass(MemBrainPass());
+                    }
                 });
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, ModulePassManager &MPM,
