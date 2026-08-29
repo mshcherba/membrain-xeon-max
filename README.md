@@ -92,8 +92,7 @@ cd ..
 ```bash
 ./benchmarks/lulesh/build.sh
 ```
-Runs Stage A (LLVM Pass transformation), merges module metadata into
-`LULESH/build/allocation_sites.json`, and outputs the binary at `LULESH/build/lulesh2.0`.
+Runs Stage A (LLVM bitcode generation + `llvm-link` whole-program linking + post-optimization `MemBrainPass` transformation), generating whole-program `LULESH/build/allocation_sites.json`, and outputs the binary at `LULESH/build/lulesh2.0`.
 
 ### 3. Profiling Allocation Sites
 Generate access frequency and bandwidth profiles:

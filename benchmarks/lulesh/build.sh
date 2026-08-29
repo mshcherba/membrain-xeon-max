@@ -64,7 +64,7 @@ if [ ! -d "${LULESH_DIR}" ]; then
 fi
 
 BUILD_DIR="${LULESH_DIR}/build"
-echo "[INFO] Building LULESH with 2-Stage Pipeline (MemBrain LLVM Pass + Intel icpx)..."
+echo "[INFO] Building LULESH with Whole-Program Pipeline (llvm-link + MemBrain LLVM Pass + Intel icpx)..."
 
 rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"
@@ -76,33 +76,45 @@ if ! command -v "${CLANG_CXX}" >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! command -v llvm-link >/dev/null 2>&1; then
+    echo "[ERROR] Required tool 'llvm-link' not found in PATH."
+    exit 1
+fi
+
 PASS_SO="${MEMBRAIN_ROOT}/build/llvm-pass/MemBrainPass.so"
 RT_DIR="${MEMBRAIN_ROOT}/build/runtime"
 INC_DIR="${MEMBRAIN_ROOT}/runtime"
 
-export MEMBRAIN_SITES_DIR="${BUILD_DIR}"
-
-echo " -> Stage A: LLVM Pass Transformation & Parallel Object Compilation..."
+echo " -> Stage A1: Emitting LLVM Bitcode for each translation unit..."
 for src in "${LULESH_DIR}"/*.cc; do
     [ -f "${src}" ] || continue
     (
         base=$(basename "${src}" .cc)
-        echo "    Processing $(basename "${src}")..."
-        "${CLANG_CXX}" -S -emit-llvm -O3 -ffast-math -g -fopenmp -DUSE_MPI=0 \
-            -fpass-plugin="${PASS_SO}" \
+        echo "    Compiling $(basename "${src}") to LLVM bitcode..."
+        "${CLANG_CXX}" -emit-llvm -c -O3 -ffast-math -g -fopenmp -DUSE_MPI=0 \
             -I"${INC_DIR}" \
-            "${src}" -o "${base}_transformed.ll"
-            
-        icpx -c -O3 -ffast-math -xHost -g -fiopenmp "${base}_transformed.ll" -o "${base}.o"
+            "${src}" -o "${base}.bc"
     ) &
 done
 wait
 
-echo " -> Merging Allocation Sites Metadata into allocation_sites.json..."
-python3 "${MEMBRAIN_ROOT}/scripts/merge_allocation_sites.py" --dir "${BUILD_DIR}" --output "${BUILD_DIR}/allocation_sites.json"
+echo " -> Stage A2: Linking Whole-Program Bitcode with llvm-link..."
+llvm-link *.bc -o lulesh_linked.bc
+
+echo " -> Stage A3: Whole-Program MemBrain Transformation (Optimization + Cloning + Tagging)..."
+export MEMBRAIN_SITES_FILE="${BUILD_DIR}/allocation_sites.json"
+"${CLANG_CXX}" -S -emit-llvm -O3 -ffast-math -g -fopenmp \
+    -fpass-plugin="${PASS_SO}" \
+    lulesh_linked.bc -o lulesh_transformed.ll
+
+if [ ! -s "${BUILD_DIR}/allocation_sites.json" ]; then
+    echo "[ERROR] Allocation sites metadata '${BUILD_DIR}/allocation_sites.json' was not generated or is empty."
+    exit 1
+fi
 
 echo " -> Stage B: Intel icpx Native Compilation & Linking..."
-icpx -O3 -ffast-math -xHost -g -fiopenmp *.o \
+icpx -c -O3 -ffast-math -xHost -g -fiopenmp lulesh_transformed.ll -o lulesh.o
+icpx -O3 -ffast-math -xHost -g -fiopenmp lulesh.o \
     -L"${RT_DIR}" -lmembrain_rt -Wl,-rpath,"${RT_DIR}" \
     -o "${BUILD_DIR}/lulesh2.0"
 

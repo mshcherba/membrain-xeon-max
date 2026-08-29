@@ -10,6 +10,7 @@
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <cctype>
@@ -100,6 +101,7 @@ static Function *cloneFunctionWithSubtree(Function *F,
     Function *ClonedF = CloneFunction(F, VMap);
     ClonedF->setName(cloneName);
     ClonedF->setSubprogram(nullptr);
+    ClonedF->setLinkage(GlobalValue::InternalLinkage);
 
     // Recursively clone downstream callees that lead to allocation sites
     if (depthRemaining > 0) {
@@ -383,22 +385,18 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
         }
 
         if (modified) {
-            SmallString<128> outPath;
-            if (const char *envDir = std::getenv("MEMBRAIN_SITES_DIR")) {
-                outPath = envDir;
-                sys::path::append(outPath, "allocation_sites_" + modStem + ".json");
-            } else {
-                outPath = "allocation_sites_" + modStem + ".json";
+            const char *envFile = std::getenv("MEMBRAIN_SITES_FILE");
+            if (!envFile || envFile[0] == '\0') {
+                report_fatal_error("[MemBrainPass] Error: MEMBRAIN_SITES_FILE environment variable is required but not set");
             }
 
             std::error_code EC;
-            raw_fd_ostream os(outPath, EC, sys::fs::OF_None);
+            raw_fd_ostream os(envFile, EC, sys::fs::OF_None);
             if (EC) {
-                errs() << "[MemBrainPass] Error writing allocation sites to '"
-                       << outPath << "': " << EC.message() << "\n";
-            } else {
-                os << formatv("{0:2}\n", json::Value(std::move(moduleSites)));
+                report_fatal_error("[MemBrainPass] Error opening allocation sites output file '" +
+                                   Twine(envFile) + "': " + EC.message());
             }
+            os << formatv("{0:2}\n", json::Value(std::move(moduleSites)));
         }
 
         return modified ? PreservedAnalyses::none() : PreservedAnalyses::all();
@@ -414,12 +412,6 @@ extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo llvmGetPassPluginIn
             PB.registerOptimizerLastEPCallback(
                 [](ModulePassManager &MPM, OptimizationLevel Level) {
                     MPM.addPass(MemBrainPass());
-                });
-            PB.registerPipelineStartEPCallback(
-                [](ModulePassManager &MPM, OptimizationLevel Level) {
-                    if (Level == OptimizationLevel::O0) {
-                        MPM.addPass(MemBrainPass());
-                    }
                 });
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, ModulePassManager &MPM,

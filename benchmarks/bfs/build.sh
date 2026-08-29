@@ -65,11 +65,16 @@ if [ ! -d "${BFS_DIR}" ]; then
 fi
 
 BUILD_DIR="${BFS_DIR}/mpi"
-echo "[INFO] Building Graph500-BFS with 2-Stage Pipeline (MemBrain LLVM Pass + Intel icpx)..."
+echo "[INFO] Building Graph500-BFS with Whole-Program Pipeline (llvm-link + MemBrain LLVM Pass + Intel icpx)..."
 
 CLANG_CXX="${CLANG_CXX:-clang++}"
 if ! command -v "${CLANG_CXX}" >/dev/null 2>&1; then
     echo "[ERROR] C++ Clang compiler ('${CLANG_CXX}') not found."
+    exit 1
+fi
+
+if ! command -v llvm-link >/dev/null 2>&1; then
+    echo "[ERROR] Required tool 'llvm-link' not found in PATH."
     exit 1
 fi
 
@@ -84,31 +89,38 @@ else
     MPI_INC="/opt/intel/oneapi/mpi/latest/include"
 fi
 
-export MEMBRAIN_SITES_DIR="${BUILD_DIR}"
-
-echo " -> Stage A: LLVM Pass Transformation on generator..."
-cd "${BFS_DIR}/generator"
-"${CLANG_CXX}" -x c -c -O3 -g -fopenmp \
-    -fpass-plugin="${PASS_SO}" \
+echo " -> Stage A1: Emitting LLVM Bitcode for generator/splittable_mrg.c..."
+"${CLANG_CXX}" -x c -emit-llvm -c -O3 -g -fopenmp \
     -I"${INC_DIR}" \
-    splittable_mrg.c -o splittable_mrg.o
+    "${BFS_DIR}/generator/splittable_mrg.c" -o "${BUILD_DIR}/splittable_mrg.bc"
 
-echo " -> Stage A: LLVM Pass Transformation on mpi/main.cc..."
+echo " -> Stage A1: Emitting LLVM Bitcode for mpi/main.cc..."
 cd "${BUILD_DIR}"
-"${CLANG_CXX}" -c -O3 -ffast-math -g -fopenmp \
+"${CLANG_CXX}" -emit-llvm -c -O3 -ffast-math -g -fopenmp \
     -include pthread.h -include time.h -include unistd.h -include stdexcept \
     -Drestrict=__restrict__ -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS -D__STDC_FORMAT_MACROS \
     -DPAGE_SIZE=4096 \
     -DVERVOSE_MODE=0 -DVERTEX_REORDERING=2 -DEDGE_LIST_PREDISTRIBUTION -DNDEBUG -DPROFILE_REGIONS \
-    -fpass-plugin="${PASS_SO}" \
     -I"${INC_DIR}" -I../external -I"${MPI_INC}" \
-    main.cc -o main.o
+    main.cc -o "${BUILD_DIR}/main.bc"
 
-echo " -> Merging Allocation Sites Metadata into allocation_sites.json..."
-python3 "${MEMBRAIN_ROOT}/scripts/merge_allocation_sites.py" --dir "${BUILD_DIR}" --output "${BUILD_DIR}/allocation_sites.json"
+echo " -> Stage A2: Linking Whole-Program Bitcode with llvm-link..."
+llvm-link "${BUILD_DIR}/main.bc" "${BUILD_DIR}/splittable_mrg.bc" -o "${BUILD_DIR}/bfs_linked.bc"
 
-echo " -> Stage B: Intel mpiicpx Native Linking..."
-mpiicpx -O3 -ffast-math -xHost -g -fiopenmp main.o "${BFS_DIR}/generator/splittable_mrg.o" \
+echo " -> Stage A3: Whole-Program MemBrain Transformation (Optimization + Cloning + Tagging)..."
+export MEMBRAIN_SITES_FILE="${BUILD_DIR}/allocation_sites.json"
+"${CLANG_CXX}" -S -emit-llvm -O3 -ffast-math -g -fopenmp \
+    -fpass-plugin="${PASS_SO}" \
+    "${BUILD_DIR}/bfs_linked.bc" -o "${BUILD_DIR}/bfs_transformed.ll"
+
+if [ ! -s "${BUILD_DIR}/allocation_sites.json" ]; then
+    echo "[ERROR] Allocation sites metadata '${BUILD_DIR}/allocation_sites.json' was not generated or is empty."
+    exit 1
+fi
+
+echo " -> Stage B: Intel mpiicpx Native Compilation & Linking..."
+mpiicpx -c -O3 -ffast-math -xHost -g -fiopenmp "${BUILD_DIR}/bfs_transformed.ll" -o "${BUILD_DIR}/bfs.o"
+mpiicpx -O3 -ffast-math -xHost -g -fiopenmp "${BUILD_DIR}/bfs.o" \
     -L"${RT_DIR}" -lmembrain_rt -Wl,-rpath,"${RT_DIR}" \
     -lnuma -lm \
     -o "${BUILD_DIR}/runnable"
