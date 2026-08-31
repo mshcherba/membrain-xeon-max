@@ -20,7 +20,7 @@ def run_knapsack_optimization(sites, hbm_capacity_bytes):
     """
     0/1 Knapsack Optimization Strategy (MemBrain Paper Section III-A).
 
-    Formulates data placement as a 0/1 knapsack problem:
+    Formulates data placement as a 0/1 knapsack problem solved via SciPy MILP (HiGHS):
     - Item weight: static 4 KB page count (rss_bytes // 4096)
     - Item value: total access count
     - Capacity limit W: hbm_capacity_bytes // 4096
@@ -28,25 +28,41 @@ def run_knapsack_optimization(sites, hbm_capacity_bytes):
     scale_factor = 4096 
     W = max(1, int(hbm_capacity_bytes // scale_factor))
     n = len(sites)
+    if n == 0:
+        return [], 0
 
     weights = [max(1, int(s.get("rss_bytes", 0) // scale_factor)) for s in sites]
     values = [int(s.get("access_count", 0)) for s in sites]
 
-    dp = [[0] * (W + 1) for _ in range(n + 1)]
-    for i in range(1, n + 1):
-        for w in range(1, W + 1):
-            if weights[i - 1] <= w:
-                dp[i][w] = max(dp[i - 1][w], dp[i - 1][w - weights[i - 1]] + values[i - 1])
-            else:
-                dp[i][w] = dp[i - 1][w]
+    # Fast path: If all items fit within capacity, select all directly
+    if sum(weights) <= W:
+        hbm_sites = {s["site_id"] for s in sites}
+        current_hbm_usage = sum(s.get("rss_bytes", 0) for s in sites)
+        guidance = [{"site_id": s["site_id"], "tier": 2} for s in sites]
+        return guidance, current_hbm_usage
 
-    # Backtrack DP table to identify selected items
-    hbm_sites = set()
-    w = W
-    for i in range(n, 0, -1):
-        if dp[i][w] != dp[i - 1][w]:
-            hbm_sites.add(sites[i - 1]["site_id"])
-            w -= weights[i - 1]
+    from scipy.optimize import milp, LinearConstraint, Bounds
+    import numpy as np
+
+    # 0/1 Knapsack formulation via MILP:
+    # Maximize sum(values[i] * x[i]) <==> Minimize sum(-values[i] * x[i])
+    # Subject to: sum(weights[i] * x[i]) <= W
+    # Bounds: 0 <= x[i] <= 1
+    # Integrality: 1 (binary integer)
+    c = -np.array(values, dtype=float)
+    A = np.array(weights, dtype=float)
+    constraints = LinearConstraint(A, 0, W)
+    integrality = np.ones(n)
+    bounds = Bounds(0, 1)
+
+    res = milp(c=c, constraints=constraints, bounds=bounds, integrality=integrality)
+
+    if not res.success:
+        raise RuntimeError(
+            f"[MemBrain Optimizer] Knapsack MILP solver failed (status {res.status}): {res.message}"
+        )
+
+    hbm_sites = {sites[i]["site_id"] for i, val in enumerate(res.x) if val > 0.5}
 
     current_hbm_usage = sum(s.get("rss_bytes", 0) for s in sites if s["site_id"] in hbm_sites)
     guidance = [{"site_id": s["site_id"], "tier": 2 if s["site_id"] in hbm_sites else 0} for s in sites]
