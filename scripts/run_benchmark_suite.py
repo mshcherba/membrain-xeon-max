@@ -306,8 +306,15 @@ class BenchmarkSuiteRunner:
             hot_path = os.path.join(cap_dir, "hotset.json")
             therm_path = os.path.join(cap_dir, "thermos.json")
 
-            if os.path.exists(knap_path) and os.path.exists(hot_path) and os.path.exists(therm_path):
-                print(f"[Guidance] All guidance files for Capacity {pct}% already exist in '{cap_dir}' -> skipping.")
+            active_strats = [s.lower().replace("_", "-") for s in self.strategies]
+            need_knap = "knapsack" in active_strats
+            need_hot = "hotset" in active_strats
+            need_therm = "thermos" in active_strats
+
+            if (not need_knap or os.path.exists(knap_path)) and \
+               (not need_hot or os.path.exists(hot_path)) and \
+               (not need_therm or os.path.exists(therm_path)):
+                print(f"[Guidance] All required guidance files for Capacity {pct}% already exist in '{cap_dir}' -> skipping.")
                 continue
 
             if profile_sites is None:
@@ -321,25 +328,28 @@ class BenchmarkSuiteRunner:
             print(f"[Guidance] Generating for Capacity {pct}% ({cap_mb:.1f} MB)...")
 
             # Knapsack
-            if not os.path.exists(knap_path):
-                knap_g, _ = run_knapsack_optimization(profile_sites, cap_bytes)
-                save_guidance_json(knap_g, knap_path)
-            else:
-                print(f"[Guidance] Found existing '{knap_path}' -> skipping.")
+            if need_knap:
+                if not os.path.exists(knap_path):
+                    knap_g, _ = run_knapsack_optimization(profile_sites, cap_bytes)
+                    save_guidance_json(knap_g, knap_path)
+                else:
+                    print(f"[Guidance] Found existing '{knap_path}' -> skipping.")
 
             # Hotset
-            if not os.path.exists(hot_path):
-                hot_g, _ = run_hotset_optimization(profile_sites, cap_bytes)
-                save_guidance_json(hot_g, hot_path)
-            else:
-                print(f"[Guidance] Found existing '{hot_path}' -> skipping.")
+            if need_hot:
+                if not os.path.exists(hot_path):
+                    hot_g, _ = run_hotset_optimization(profile_sites, cap_bytes)
+                    save_guidance_json(hot_g, hot_path)
+                else:
+                    print(f"[Guidance] Found existing '{hot_path}' -> skipping.")
 
             # Thermos
-            if not os.path.exists(therm_path):
-                therm_g, _ = run_thermos_optimization(profile_sites, cap_bytes)
-                save_guidance_json(therm_g, therm_path)
-            else:
-                print(f"[Guidance] Found existing '{therm_path}' -> skipping.")
+            if need_therm:
+                if not os.path.exists(therm_path):
+                    therm_g, _ = run_thermos_optimization(profile_sites, cap_bytes)
+                    save_guidance_json(therm_g, therm_path)
+                else:
+                    print(f"[Guidance] Found existing '{therm_path}' -> skipping.")
 
     def build_experiments(self, peak_rss_kb):
         """Construct the 14 experiment configurations according to user specifications."""
