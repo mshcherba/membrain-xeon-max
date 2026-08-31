@@ -202,8 +202,13 @@ static void performCallPathFunctionCloning(Module &M, uint32_t maxDepth = 4) {
 
 struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
     PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
-        // Step 1: Perform Call Path Function Cloning (depth n=4)
-        performCallPathFunctionCloning(M, 4);
+        // Step 1: Perform Call Path Function Cloning
+        if (const char *envDepth = std::getenv("MEMBRAIN_CLONE_DEPTH")) {
+            int cloneDepth = std::atoi(envDepth);
+            if (cloneDepth > 0) {
+                performCallPathFunctionCloning(M, cloneDepth);
+            }
+        }
 
 
         // Step 2: Annotate Allocation Sites and Rewrite IR

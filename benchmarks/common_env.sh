@@ -6,5 +6,6 @@
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-32}"
 export OMP_STACKSIZE="${OMP_STACKSIZE:-64M}"
 export KMP_AFFINITY="${KMP_AFFINITY:-granularity=fine,compact,1,0}"
+export MEMBRAIN_CLONE_DEPTH="${MEMBRAIN_CLONE_DEPTH:-4}"
 ulimit -s unlimited 2>/dev/null || true
 

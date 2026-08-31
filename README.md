@@ -94,6 +94,8 @@ cd ..
 ```
 Runs Stage A (LLVM bitcode generation + `llvm-link` whole-program linking + post-optimization `MemBrainPass` transformation), generating whole-program `LULESH/build/allocation_sites.json`, and outputs the binary at `LULESH/build/lulesh2.0`.
 
+> **Call Path Function Cloning Depth:** In accordance with Section IV-A & V-C of the paper, MemBrain provides configurable call path function cloning depth $n$. The default depth is **4** (evaluated in the paper). This can be customized by exporting `MEMBRAIN_CLONE_DEPTH=<n>`, or set to `0` to disable cloning.
+
 ### 3. Profiling Allocation Sites
 Generate access frequency and bandwidth profiles:
 ```bash

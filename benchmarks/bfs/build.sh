@@ -109,6 +109,7 @@ llvm-link "${BUILD_DIR}/main.bc" "${BUILD_DIR}/splittable_mrg.bc" -o "${BUILD_DI
 
 echo " -> Stage A3: Whole-Program MemBrain Transformation (Optimization + Cloning + Tagging)..."
 export MEMBRAIN_SITES_FILE="${BUILD_DIR}/allocation_sites.json"
+export MEMBRAIN_CLONE_DEPTH="${MEMBRAIN_CLONE_DEPTH:-4}"
 "${CLANG_CXX}" -S -emit-llvm -O3 -ffast-math -g -fopenmp \
     -fpass-plugin="${PASS_SO}" \
     "${BUILD_DIR}/bfs_linked.bc" -o "${BUILD_DIR}/bfs_transformed.ll"

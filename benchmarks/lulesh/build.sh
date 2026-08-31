@@ -103,6 +103,7 @@ llvm-link *.bc -o lulesh_linked.bc
 
 echo " -> Stage A3: Whole-Program MemBrain Transformation (Optimization + Cloning + Tagging)..."
 export MEMBRAIN_SITES_FILE="${BUILD_DIR}/allocation_sites.json"
+export MEMBRAIN_CLONE_DEPTH="${MEMBRAIN_CLONE_DEPTH:-4}"
 "${CLANG_CXX}" -S -emit-llvm -O3 -ffast-math -g -fopenmp \
     -fpass-plugin="${PASS_SO}" \
     lulesh_linked.bc -o lulesh_transformed.ll
