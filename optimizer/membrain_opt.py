@@ -99,48 +99,80 @@ def run_thermos_optimization(sites, hbm_capacity_bytes):
     """
     Thermos Data Placement Optimization Strategy (MemBrain Paper Section III-A).
 
+    Paper Specification:
+      "Thermos is similar to hotset with one exception: it only assigns a new site
+       to the upper tier if the bandwidth it contributes is greater than the aggregate
+       bandwidth of the hottest data it could potentially displace. In this way,
+       thermos avoids crowding out performance-critical data, while still allowing
+       large-capacity, high-bandwidth sites to place a portion of their data in the
+       upper-level memory."
+
     Algorithm:
     1. Sort sites by hotness = (access_count / rss_bytes) in descending order.
     2. Add sites to HBM as long as (current_hbm_usage + site_rss <= hbm_capacity_bytes).
-    3. When a site causes HBM usage to exceed capacity (current_hbm_usage + site_rss > hbm_capacity_bytes):
-       - Compute overflow_bytes = (current_hbm_usage + site_rss) - hbm_capacity_bytes
-       - Compute current average HBM bandwidth density:
-         hbm_density = total_hbm_access / current_hbm_usage
-       - Compute displaced bandwidth cost:
-         displaced_bandwidth = overflow_bytes * hbm_density
-       - Assign site to HBM if and only if site_access > displaced_bandwidth.
+    3. When a candidate site causes HBM usage to exceed capacity:
+       - Overflow amount: overflow_bytes = (current_hbm_usage + site_rss) - hbm_capacity_bytes.
+       - Displaceable capacity in HBM: displaceable_bytes = min(overflow_bytes, current_hbm_usage).
+       - Displaced bandwidth: Aggregate bandwidth of the *hottest* data (starting from the
+         top admitted sites in descending order of hotness) up to displaceable_bytes.
+       - Contributed bandwidth: Bandwidth provided by the portion of the candidate site that
+         actually resides in the upper tier:
+           admitted_rss = min(site_rss, hbm_capacity_bytes - current_hbm_usage + displaceable_bytes)
+           contributed_bandwidth = admitted_rss * site_hotness
+       - Displacement condition:
+         If contributed_bandwidth > displaced_bandwidth:
+           Admit site to HBM, update current_hbm_usage, and terminate (upper tier saturated).
+         Else:
+           Do NOT admit this site; continue checking subsequent smaller candidates that may fit.
     """
     sorted_sites = sorted(sites, key=lambda x: x.get("hotness", 0), reverse=True)
     current_hbm_usage = 0
-    total_hbm_access = 0
+    admitted_sites = []
     hbm_sites = set()
 
     for site in sorted_sites:
         site_id = site["site_id"]
         site_rss = site.get("rss_bytes", 0)
         site_access = site.get("access_count", 0)
+        site_hotness = site.get("hotness", 0.0)
+        if site_rss > 0 and site_hotness == 0.0 and site_access > 0:
+            site_hotness = site_access / site_rss
 
         if current_hbm_usage >= hbm_capacity_bytes:
-            # HBM capacity is full or exceeded. Because sites are sorted by hotness descending,
-            # any remaining site's hotness is <= hbm_density, so it can never pass the threshold.
             break
 
         if current_hbm_usage + site_rss <= hbm_capacity_bytes:
             hbm_sites.add(site_id)
+            admitted_sites.append({
+                "site_id": site_id,
+                "rss_bytes": site_rss,
+                "access_count": site_access,
+                "hotness": site_hotness
+            })
             current_hbm_usage += site_rss
-            total_hbm_access += site_access
         else:
-            # Thermos displacement threshold check:
-            # Only assign the site if its contributed bandwidth (site_access) is greater
-            # than the aggregate bandwidth of the data it would displace from HBM.
             overflow_bytes = (current_hbm_usage + site_rss) - hbm_capacity_bytes
-            hbm_density = (total_hbm_access / current_hbm_usage) if current_hbm_usage > 0 else 0
-            displaced_bandwidth = overflow_bytes * hbm_density
+            displaceable_bytes = min(overflow_bytes, current_hbm_usage)
 
-            if site_access > displaced_bandwidth:
+            # Aggregate bandwidth of the HOTTEST data potentially displaced
+            displaced_bandwidth = 0.0
+            bytes_to_displace = displaceable_bytes
+            for adm in admitted_sites:
+                if bytes_to_displace <= 0:
+                    break
+                take_bytes = min(adm["rss_bytes"], bytes_to_displace)
+                displaced_bandwidth += take_bytes * adm["hotness"]
+                bytes_to_displace -= take_bytes
+
+            # Contributed bandwidth from the portion residing in HBM
+            effective_available = hbm_capacity_bytes - current_hbm_usage + displaceable_bytes
+            admitted_rss = min(site_rss, effective_available)
+            contributed_bandwidth = admitted_rss * site_hotness
+
+            if contributed_bandwidth > displaced_bandwidth:
                 hbm_sites.add(site_id)
                 current_hbm_usage += site_rss
-                total_hbm_access += site_access
+                break
 
     guidance = [{"site_id": s["site_id"], "tier": 2 if s["site_id"] in hbm_sites else 0} for s in sites]
     return guidance, current_hbm_usage
