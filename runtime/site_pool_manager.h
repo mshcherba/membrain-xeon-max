@@ -68,7 +68,7 @@ private:
     bool m_pebsEnabled{false};
     std::string m_sitesFile{"allocation_sites.json"};
     std::string m_profileOut{"profile_data.json"};
-    mutable std::mutex m_mutex;
+    mutable std::recursive_mutex m_mutex;
 
     std::unordered_map<uint32_t, umf_memory_pool_handle_t> m_sitePools;
     std::unordered_map<uint32_t, std::vector<AllocRegion>> m_siteRegions;

@@ -38,7 +38,7 @@ SitePoolManager::~SitePoolManager() {
         exportProfileJson(m_profileOut, m_sitesFile);
     }
 
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
     for (auto& entry : m_sitePools) {
         if (entry.second) {
             umfPoolDestroy(entry.second);
@@ -79,7 +79,7 @@ void SitePoolManager::initFromEnv() {
 umf_memory_pool_handle_t SitePoolManager::getOrCreateSitePool(uint32_t siteId) {
     if (!m_profilingMode) return nullptr;
 
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
     auto it = m_sitePools.find(siteId);
     if (it != m_sitePools.end()) {
         return it->second;
@@ -113,7 +113,7 @@ umf_memory_pool_handle_t SitePoolManager::getOrCreateSitePool(uint32_t siteId) {
 void SitePoolManager::registerAllocation(uint32_t siteId, void* ptr, size_t size) {
     if (!ptr || size == 0) return;
 
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
     uintptr_t start = reinterpret_cast<uintptr_t>(ptr);
     uintptr_t end = start + size;
 
@@ -129,7 +129,7 @@ void SitePoolManager::registerAllocation(uint32_t siteId, void* ptr, size_t size
 void SitePoolManager::unregisterAllocation(void* ptr) {
     if (!ptr) return;
 
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
     auto it = m_ptrSiteMap.find(ptr);
     if (it == m_ptrSiteMap.end()) return;
 
@@ -137,11 +137,6 @@ void SitePoolManager::unregisterAllocation(void* ptr) {
     uintptr_t start = reinterpret_cast<uintptr_t>(ptr);
     size_t size = it->second.second;
     uintptr_t end = start + size;
-
-    size_t resBytes = pagemap::getResidentBytes(start, end);
-    if (resBytes > m_peakRssBytes[siteId]) {
-        m_peakRssBytes[siteId] = resBytes;
-    }
 
     auto& regions = m_siteRegions[siteId];
     regions.erase(
@@ -156,7 +151,7 @@ void SitePoolManager::unregisterAllocation(void* ptr) {
 void SitePoolManager::samplePeakRss() {
     std::unordered_map<uint32_t, std::vector<AllocRegion>> regionsSnapshot;
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         regionsSnapshot = m_siteRegions;
     }
 
@@ -173,7 +168,7 @@ void SitePoolManager::samplePeakRss() {
     }
 
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         for (const auto& entry : sampledRss) {
             uint32_t siteId = entry.first;
             if (entry.second > m_peakRssBytes[siteId]) {
@@ -194,7 +189,7 @@ void SitePoolManager::drainPebsSamples() {
 
     std::vector<FlatInterval> flatRegions;
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         const auto& sourceMap = m_historicalRegions.empty() ? m_siteRegions : m_historicalRegions;
         for (const auto& kv : sourceMap) {
             for (const auto& reg : kv.second) {
@@ -225,7 +220,7 @@ void SitePoolManager::drainPebsSamples() {
     });
 
     if (!batchCounts.empty()) {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         for (const auto& kv : batchCounts) {
             m_accessCounts[kv.first] += kv.second;
         }
@@ -233,7 +228,7 @@ void SitePoolManager::drainPebsSamples() {
 }
 
 size_t SitePoolManager::getPeakRssBytes(uint32_t siteId) const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
     auto it = m_peakRssBytes.find(siteId);
     if (it != m_peakRssBytes.end()) {
         return it->second;
@@ -242,7 +237,7 @@ size_t SitePoolManager::getPeakRssBytes(uint32_t siteId) const {
 }
 
 uint64_t SitePoolManager::getAccessCount(uint32_t siteId) const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
     auto it = m_accessCounts.find(siteId);
     if (it != m_accessCounts.end()) {
         return it->second;
@@ -253,7 +248,7 @@ uint64_t SitePoolManager::getAccessCount(uint32_t siteId) const {
 void SitePoolManager::exportProfileJson(const std::string& profileOut,
                                        const std::string& sitesJson,
                                        const std::string& rssProfileOut) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
 
     // 1. Export site_rss_profile.json
     json jRssArray = json::array();
