@@ -94,6 +94,21 @@ static Function *cloneCallChain(const SmallVectorImpl<std::pair<Function*, CallB
         ClonedF->setSubprogram(nullptr);
         ClonedF->setLinkage(GlobalValue::InternalLinkage);
 
+        SmallVector<BasicBlock*, 32> blocks;
+        for (BasicBlock &BB : *ClonedF) blocks.push_back(&BB);
+        remapInstructionsInBlocks(blocks, VMap);
+
+        // Remap recursive calls within the clone to target ClonedF itself
+        for (BasicBlock &BB : *ClonedF) {
+            for (Instruction &I : BB) {
+                if (auto *CB = dyn_cast<CallBase>(&I)) {
+                    if (CB->getCalledOperand()->stripPointerCasts() == origF) {
+                        CB->setCalledFunction(ClonedF);
+                    }
+                }
+            }
+        }
+
         // Rewire internal call to the cloned downstream callee
         if (i > 0 && clonedDownstream) {
             CallBase *origCallToCallee = chain[i - 1].second;
@@ -106,10 +121,6 @@ static Function *cloneCallChain(const SmallVectorImpl<std::pair<Function*, CallB
             }
         }
 
-        SmallVector<BasicBlock*, 32> blocks;
-        for (BasicBlock &BB : *ClonedF) blocks.push_back(&BB);
-        remapInstructionsInBlocks(blocks, VMap);
-
         clonedDownstream = ClonedF;
     }
 
@@ -120,11 +131,11 @@ static Function *cloneCallChain(const SmallVectorImpl<std::pair<Function*, CallB
 // Starting from the inner-most node (containing an allocation instruction),
 // the pass walks each path back (towards main) and creates a separate copy
 // (including the subtree) of the first node it finds with multiple parents.
-// Whenever the graph is modified, the pass recomputes unique identifiers and
-// call paths for each allocation instruction before continuing.
-static void performCallPathFunctionCloning(Module &M, uint32_t maxDepth = 4) {
-    const uint32_t maxIterations = 100;
-    for (uint32_t iter = 0; iter < maxIterations; ++iter) {
+// Termination occurs when there are no call paths of length n (or less) that end at the same allocation site.
+static void performCallPathFunctionCloning(Module &M, uint32_t maxDepth) {
+    if (maxDepth <= 1) return;
+
+    while (true) {
         bool madeChanges = false;
 
         // Recompute: gather all current allocation calls in the module
@@ -155,7 +166,7 @@ static void performCallPathFunctionCloning(Module &M, uint32_t maxDepth = 4) {
             visited.insert(currF);
             chain.push_back({currF, nullptr});
 
-            while (chain.size() <= maxDepth) {
+            while (chain.size() < maxDepth) {
                 SmallVector<CallBase*, 8> callers = getDirectCallers(currF);
                 if (callers.size() > 1) {
                     // First node found with multiple parents: clone chain for each additional caller
@@ -170,9 +181,6 @@ static void performCallPathFunctionCloning(Module &M, uint32_t maxDepth = 4) {
                     Function *parentF = singleCallerCB->getFunction();
                     if (!parentF || parentF->getName() == "main" || parentF->isDeclaration() ||
                         parentF->getName().starts_with("membrain_") || visited.count(parentF)) {
-                        break;
-                    }
-                    if (chain.size() == maxDepth) {
                         break;
                     }
                     chain.back().second = singleCallerCB;
@@ -197,9 +205,6 @@ static void performCallPathFunctionCloning(Module &M, uint32_t maxDepth = 4) {
     }
 }
 
-
-
-
 struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
     PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
         // Step 1: Perform Call Path Function Cloning
@@ -209,7 +214,6 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
                 performCallPathFunctionCloning(M, cloneDepth);
             }
         }
-
 
         // Step 2: Annotate Allocation Sites and Rewrite IR
         LLVMContext &Ctx = M.getContext();
