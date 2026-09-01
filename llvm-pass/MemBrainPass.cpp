@@ -414,16 +414,21 @@ struct MemBrainPass : public PassInfoMixin<MemBrainPass> {
         }
 
         if (modified) {
-            const char *envFile = std::getenv("MEMBRAIN_SITES_FILE");
-            if (!envFile || envFile[0] == '\0') {
-                report_fatal_error("[MemBrainPass] Error: MEMBRAIN_SITES_FILE environment variable is required but not set");
+            SmallString<256> outPath;
+            if (const char *envDir = std::getenv("MEMBRAIN_SITES_DIR")) {
+                outPath = envDir;
+                sys::path::append(outPath, "allocation_sites_" + modStem + ".json");
+            } else if (const char *envFile = std::getenv("MEMBRAIN_SITES_FILE")) {
+                outPath = envFile;
+            } else {
+                report_fatal_error("[MemBrainPass] Error: Neither MEMBRAIN_SITES_DIR nor MEMBRAIN_SITES_FILE environment variable is set");
             }
 
             std::error_code EC;
-            raw_fd_ostream os(envFile, EC, sys::fs::OF_None);
+            raw_fd_ostream os(outPath, EC, sys::fs::OF_None);
             if (EC) {
                 report_fatal_error("[MemBrainPass] Error opening allocation sites output file '" +
-                                   Twine(envFile) + "': " + EC.message());
+                                   Twine(outPath) + "': " + EC.message());
             }
             os << formatv("{0:2}\n", json::Value(std::move(moduleSites)));
         }
