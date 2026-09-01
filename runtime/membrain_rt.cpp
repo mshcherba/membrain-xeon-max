@@ -4,6 +4,7 @@
 #include "site_pool_manager.h"
 
 #include <unistd.h>
+#include <dlfcn.h>
 #include <atomic>
 #include <cerrno>
 #include <cstdlib>
@@ -176,13 +177,54 @@ void trackAllocation(void *ptr, size_t size, uint32_t site_id, const char *alloc
 
 } // namespace
 
+static thread_local bool g_inInit = false;
+
+static void* (*get_libc_malloc())(size_t) {
+    static void* (*real_malloc)(size_t) = (void*(*)(size_t))dlsym(RTLD_NEXT, "malloc");
+    return real_malloc;
+}
+
+static void* (*get_libc_calloc())(size_t, size_t) {
+    static void* (*real_calloc)(size_t, size_t) = (void*(*)(size_t, size_t))dlsym(RTLD_NEXT, "calloc");
+    return real_calloc;
+}
+
+static void* (*get_libc_realloc())(void*, size_t) {
+    static void* (*real_realloc)(void*, size_t) = (void*(*)(void*, size_t))dlsym(RTLD_NEXT, "realloc");
+    return real_realloc;
+}
+
+static int (*get_libc_posix_memalign())(void**, size_t, size_t) {
+    static int (*real_pma)(void**, size_t, size_t) = (int(*)(void**, size_t, size_t))dlsym(RTLD_NEXT, "posix_memalign");
+    return real_pma;
+}
+
+static void (*get_libc_free())(void*) {
+    static void (*real_free)(void*) = (void(*)(void*))dlsym(RTLD_NEXT, "free");
+    return real_free;
+}
+
+static bool is_umf_ptr(const void *ptr) {
+    if (!ptr) return false;
+    umf_memory_pool_handle_t pool = nullptr;
+    return (umfPoolByPtr(ptr, &pool) == UMF_RESULT_SUCCESS && pool != nullptr);
+}
+
 extern "C" {
 
 void membrain_init(void) {
+    if (g_inInit) return;
+    g_inInit = true;
     std::call_once(g_initFlag, initRuntime);
+    g_inInit = false;
 }
 
 void *membrain_alloc(size_t size, uint32_t site_id) {
+    if (g_inInit) {
+        auto real_malloc = get_libc_malloc();
+        return real_malloc ? real_malloc(size) : nullptr;
+    }
+
     membrain_init();
 
     if (size == 0) return nullptr;
@@ -207,16 +249,33 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
 }
 
 void membrain_free(void *ptr) {
-    if (ptr) {
+    if (!ptr) return;
+    if (is_umf_ptr(ptr)) {
         auto& siteMgr = membrain::SitePoolManager::instance();
         if (siteMgr.isProfilingMode()) {
             siteMgr.unregisterAllocation(ptr);
         }
         umfFree(ptr);
+    } else {
+        auto real_free = get_libc_free();
+        if (real_free) real_free(ptr);
     }
 }
 
+void free(void *ptr) noexcept {
+    membrain_free(ptr);
+}
+
+void cfree(void *ptr) noexcept {
+    membrain_free(ptr);
+}
+
 void *membrain_calloc(size_t num, size_t size, uint32_t site_id) {
+    if (g_inInit) {
+        auto real_calloc = get_libc_calloc();
+        return real_calloc ? real_calloc(num, size) : nullptr;
+    }
+
     size_t total = num * size;
     void *ptr = membrain_alloc(total, site_id);
     if (ptr && total > 0) {
@@ -232,7 +291,18 @@ void *membrain_realloc(void *ptr, size_t size, uint32_t site_id) {
         return nullptr;
     }
 
+    if (g_inInit) {
+        auto real_realloc = get_libc_realloc();
+        return real_realloc ? real_realloc(ptr, size) : nullptr;
+    }
+
     membrain_init();
+
+    if (!is_umf_ptr(ptr)) {
+        auto real_realloc = get_libc_realloc();
+        return real_realloc ? real_realloc(ptr, size) : nullptr;
+    }
+
     auto& siteMgr = membrain::SitePoolManager::instance();
     void *newPtr = nullptr;
 
@@ -265,6 +335,11 @@ void *membrain_aligned_alloc(size_t alignment, size_t size, uint32_t site_id) {
 }
 
 int membrain_posix_memalign(void **memptr, size_t alignment, size_t size, uint32_t site_id) {
+    if (g_inInit) {
+        auto real_pma = get_libc_posix_memalign();
+        return real_pma ? real_pma(memptr, alignment, size) : ENOMEM;
+    }
+
     membrain_init();
 
     if (!memptr) return EINVAL;
