@@ -50,11 +50,17 @@ if [ ! -d "${QMCPACK_DIR}" ]; then
     git clone https://github.com/QMCPACK/qmcpack.git "${QMCPACK_DIR}"
 fi
 
-# 3. Setup relative symlinks for benchmark input data
-if [ -d "${MEMBRAIN_ROOT}/../qmc_data/NiO" ]; then
-    ln -sf ../../../qmc_data/NiO/NiO-fcc-supertwist111-supershift000-S64.h5 "${SCRIPT_DIR}/NiO-fcc-supertwist111-supershift000-S64.h5"
-    ln -sf ../../../qmc_data/NiO/Ni.opt.xml "${SCRIPT_DIR}/Ni.opt.xml"
-    ln -sf ../../../qmc_data/NiO/O.xml "${SCRIPT_DIR}/O.xml"
+# 3. Setup pseudopotentials from cloned QMCPACK repo
+for f in Ni.opt.xml O.xml; do
+    [ -f "${SCRIPT_DIR}/${f}" ] || ln -sf "${QMCPACK_DIR}/tests/performance/NiO/${f}" "${SCRIPT_DIR}/${f}"
+done
+
+# 4. Fetch wavefunction dataset if missing
+H5_NAME="NiO-fcc-supertwist111-supershift000-S64.h5"
+DEFAULT_H5_URL="https://anl.app.box.com/index.php?rm=box_download_shared_file&shared_name=yxz1ic4kxtdtgpva5hcmlom9ixfl3v3c&file_id=f_136595055334"
+if [ ! -f "${SCRIPT_DIR}/${H5_NAME}" ]; then
+    echo "[INFO] Downloading ${H5_NAME} (~2.18 GB) from Argonne QMCPACK repository..."
+    curl -fSL -A "Mozilla/5.0" "${QMC_DATA_URL:-${DEFAULT_H5_URL}}" -o "${SCRIPT_DIR}/${H5_NAME}"
 fi
 
 mkdir -p "${BUILD_DIR}/sites"

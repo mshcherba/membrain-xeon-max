@@ -27,7 +27,7 @@ fi
 echo "[INFO] Installing system build dependencies (LLVM, Clang, NUMA, CMake)..."
 
 apt-get update
-apt-get install -y wget gpg cmake build-essential g++-14 git clang llvm-dev libomp-dev libnuma-dev numactl python3 python3-pip python3-scipy python3-numpy
+apt-get install -y wget gpg cmake ninja-build build-essential g++-14 git clang llvm-dev libomp-dev libnuma-dev numactl libhdf5-dev libxml2-dev libboost-dev python3 python3-pip python3-scipy python3-numpy
 
 # Setup Intel oneAPI APT repository if missing
 if [ ! -f /usr/share/keyrings/oneapi-archive-keyring.gpg ]; then

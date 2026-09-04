@@ -17,6 +17,13 @@ MEMBRAIN_RT="${MEMBRAIN_ROOT}/build/runtime/libmembrain_rt.so"
 [ -f "${QMCPACK_BIN}" ] || { echo "ERROR: QMCPACK_BIN not found at '${QMCPACK_BIN}'" >&2; exit 1; }
 [ -f "${SITES_JSON}" ] || { echo "ERROR: SITES_JSON not found at '${SITES_JSON}'" >&2; exit 1; }
 [ -f "${MEMBRAIN_RT}" ] || { echo "ERROR: MEMBRAIN_RT not found at '${MEMBRAIN_RT}'" >&2; exit 1; }
+[ -f "${SCRIPT_DIR}/Ni.opt.xml" ] || { echo "ERROR: Ni.opt.xml not found at '${SCRIPT_DIR}/Ni.opt.xml'" >&2; exit 1; }
+[ -f "${SCRIPT_DIR}/O.xml" ] || { echo "ERROR: O.xml not found at '${SCRIPT_DIR}/O.xml'" >&2; exit 1; }
+[ -f "${SCRIPT_DIR}/NiO-fcc-supertwist111-supershift000-S64.h5" ] || {
+    echo "ERROR: Wavefunction file '${SCRIPT_DIR}/NiO-fcc-supertwist111-supershift000-S64.h5' not found!" >&2
+    echo "       Please set export QMC_DATA_URL='<url>' and rebuild or place the file directly in ${SCRIPT_DIR}." >&2
+    exit 1
+}
 
 if [ -f /opt/intel/oneapi/setvars.sh ]; then
     source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
