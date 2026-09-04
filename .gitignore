@@ -1,9 +1,24 @@
 build/
 *.so
 *.o
-scratch/
-*.json
-!**/config.json
-!**/common_config.json
 __pycache__/
 *.pyc
+scratch/
+
+# Runtime and profiling traces
+*.data
+*.data.old
+alloc_trace.txt
+
+# Intermediate compiler and profiler dumps
+*profile_data.json
+*site_rss_profile.json
+*allocation_sites.json
+site_tier_guidance.json
+guidance/
+
+# Execution logs & temporary data dumps
+logs/
+*.log
+*.h5
+*.dat
