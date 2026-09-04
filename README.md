@@ -83,6 +83,23 @@ tests/                    — unit tests for statistics, pagemap, and runtime
   - `libnuma-dev`
   - `Python 3` with `numpy` and `scipy`
   - `numactl`
+  - Dependencies can be installed via [`scripts/install_dependencies.sh`](scripts/install_dependencies.sh):
+    ```bash
+    sudo ./scripts/install_dependencies.sh
+    ```
+
+### System Preparation
+Before profiling or running benchmarks, the host system environment must be configured by running [`scripts/prepare_system.sh`](scripts/prepare_system.sh) with root privileges:
+```bash
+sudo ./scripts/prepare_system.sh
+```
+This script configures kernel, CPU, and memory settings for reproducible and isolated benchmark execution:
+- Disables swapping (`swapoff -a` & `vm.swappiness=0`)
+- Disables Transparent Huge Pages (THP)
+- Disables automatic NUMA balancing (`kernel.numa_balancing=0`)
+- Disables SMT / Hyper-Threading
+- Sets CPU scaling governor to `performance`
+- Sets `kernel.perf_event_paranoid=-1` for hardware PEBS sampling
 
 ---
 
