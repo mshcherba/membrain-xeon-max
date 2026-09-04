@@ -67,7 +67,7 @@ scripts/                  — generic execution and system orchestration scripts
 
 llvm-pass/                — LLVM MemBrainPass plugin (site tagging + call-path function cloning)
 runtime/                  — libmembrain_rt.so (Intel UMF scalable pools + mbind NUMA interposition)
-profiler/                 — pebs_profiler.py, mbi_profiler.py, profiler_core.py
+profiler/                 — pebs_profiler.py
 optimizer/                — membrain_opt.py (Knapsack MILP, Hotset, Thermos strategies)
 tests/                    — unit tests for statistics, pagemap, and runtime
 ```
@@ -107,17 +107,10 @@ Runs Stage A (LLVM bitcode generation + `llvm-link` whole-program linking + post
 > **Call Path Function Cloning Depth:** In accordance with Section IV-A & V-C of the paper, MemBrain provides configurable call path function cloning depth $n$. The default depth is **4** (evaluated in the paper). This can be customized by exporting `MEMBRAIN_CLONE_DEPTH=<n>`, or set to `0` to disable cloning.
 
 ### 3. Profiling Allocation Sites
-Generate access frequency and bandwidth profiles:
+Generate access frequency and memory profile data using the in-process PEBS profiler:
 ```bash
 # PEBS Profiler (In-process LLC Miss Access Counts + Physical Peak RSS via pagemap)
 ./benchmarks/lulesh/profile.sh
-
-# Memory Bandwidth Isolation (MBI) Profiler (Isolated DDR5 Uncore Traffic)
-python3 profiler/mbi_profiler.py \
-    --sites benchmarks/lulesh/allocation_sites.json \
-    --runtime build/runtime/libmembrain_rt.so \
-    --output benchmarks/lulesh/mbi_profile_data.json \
-    benchmarks/lulesh/build/lulesh2.0 -s 400 -i 5 -r 11 -b 0 -c 64 -p
 ```
 
 ### 4. Running Optimization Algorithms
