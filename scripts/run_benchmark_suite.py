@@ -144,6 +144,13 @@ class BenchmarkSuiteRunner:
         raw_bin = self.config.get("binary_path", "")
         self.binary_path = os.path.abspath(os.path.join(self.bench_dir, raw_bin)) if not os.path.isabs(raw_bin) else raw_bin
 
+        # Working directory
+        raw_work_dir = self.config.get("working_dir")
+        if raw_work_dir:
+            self.working_dir = os.path.abspath(os.path.join(self.bench_dir, raw_work_dir)) if not os.path.isabs(raw_work_dir) else raw_work_dir
+        else:
+            self.working_dir = MEMBRAIN_ROOT
+
         # Working and output directories
         self.guidance_dir = os.path.join(self.bench_dir, "guidance")
         self.exp_dir = os.path.join(self.bench_dir, "experiments")
@@ -169,6 +176,18 @@ class BenchmarkSuiteRunner:
                 try:
                     metrics[metric_name] = float(m.group(1))
                 except (ValueError, IndexError):
+                    pass
+
+        # Compute FOM from fom_formula if not parsed directly
+        if "fom" not in metrics:
+            formula = self.config.get("fom_formula")
+            if formula:
+                try:
+                    safe_dict = {k: v for k, v in metrics.items() if isinstance(v, (int, float))}
+                    val = eval(formula, {"__builtins__": None, "math": math}, safe_dict)
+                    if isinstance(val, (int, float)) and not math.isnan(val) and not math.isinf(val):
+                        metrics["fom"] = float(val)
+                except Exception:
                     pass
 
         # Peak RSS from /usr/bin/time -v
@@ -228,7 +247,7 @@ class BenchmarkSuiteRunner:
 
         print(f"[RSS Measurement] Executing: {' '.join(cmd)}")
         with open(log_path, "w") as f_log:
-            proc = subprocess.run(cmd, stdout=f_log, stderr=subprocess.STDOUT, env=env, cwd=MEMBRAIN_ROOT)
+            proc = subprocess.run(cmd, stdout=f_log, stderr=subprocess.STDOUT, env=env, cwd=self.working_dir)
 
         if proc.returncode != 0:
             raise RuntimeError(f"Peak RSS measurement run failed (exit code {proc.returncode}). Log: {log_path}")
@@ -462,7 +481,7 @@ class BenchmarkSuiteRunner:
 
         start_t = time.time()
         with open(log_file, "w") as f_log:
-            proc = subprocess.run(cmd, stdout=f_log, stderr=subprocess.STDOUT, env=env, cwd=MEMBRAIN_ROOT)
+            proc = subprocess.run(cmd, stdout=f_log, stderr=subprocess.STDOUT, env=env, cwd=self.working_dir)
         wall_time = time.time() - start_t
 
         if proc.returncode != 0:

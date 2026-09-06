@@ -8,9 +8,10 @@
     "NiO-fcc-S64.xml"
   ],
   "patterns": {
-    "fom": "DMC Execution time[\\s\\S]*?FOM\\s*=\\s*([\\d\\.e\\+\\-]+)",
-    "elapsed_sec": "(?:DMC|VMC|Total) Execution time\\s*=\\s*([\\d\\.e\\+\\-]+)",
+    "dmc_sec": "DMC Execution time\\s*=\\s*([\\d\\.e\\+\\-]+)",
+    "elapsed_sec": "(?:DMC|Total) Execution time\\s*=\\s*([\\d\\.e\\+\\-]+)",
     "total_sec": "Total Execution time\\s*=\\s*([\\d\\.e\\+\\-]+)",
     "init_sec": "Initialization Execution time\\s*=\\s*([\\d\\.e\\+\\-]+)"
-  }
+  },
+  "fom_formula": "1.0 / dmc_sec"
 }

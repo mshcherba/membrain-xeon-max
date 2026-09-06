@@ -98,6 +98,45 @@ class TestBenchmarkSuiteStats(unittest.TestCase):
         self.assertAlmostEqual(metrics["construction_time"], 4.123456)
         self.assertEqual(metrics["max_rss_kb"], 1234567)
 
+    def test_qmcpack_config_loading(self):
+        runner = BenchmarkSuiteRunner(
+            benchmark_name="qmcpack",
+            repeats=3
+        )
+        self.assertEqual(runner.repeats, 3)
+        self.assertEqual(runner.fom_unit, "1/s")
+        self.assertEqual(runner.cli_args, ["NiO-fcc-S64.xml"])
+        expected_work_dir = os.path.join(MEMBRAIN_ROOT, "benchmarks", "qmcpack")
+        self.assertEqual(runner.working_dir, expected_work_dir)
+
+        # Verify Intel MKL is included in execution environment LD_LIBRARY_PATH
+        env = runner._build_execution_env()
+        self.assertIn("mkl", env.get("LD_LIBRARY_PATH", ""))
+
+        exps = runner.build_experiments(peak_rss_kb=40000000)
+        self.assertEqual(len(exps), 14)
+
+    def test_qmcpack_metric_parsing(self):
+        runner = BenchmarkSuiteRunner(
+            benchmark_name="qmcpack"
+        )
+        sample_output = """
+          Initialization Execution time = 10.50 secs
+          VMC Execution time = 5.25 secs
+          DMC Execution time = 25.00 secs
+          Total Execution time = 40.75 secs
+        Maximum resident set size (kbytes): 41943040
+        """
+        metrics = runner.parse_metrics(sample_output)
+        self.assertAlmostEqual(metrics["dmc_sec"], 25.0)
+        self.assertAlmostEqual(metrics["elapsed_sec"], 25.0)
+        self.assertAlmostEqual(metrics["total_sec"], 40.75)
+        self.assertAlmostEqual(metrics["init_sec"], 10.50)
+        # FOM should be computed from fom_formula: 1.0 / dmc_sec = 0.04
+        self.assertAlmostEqual(metrics["fom"], 0.04)
+        self.assertEqual(metrics["max_rss_kb"], 41943040)
+        self.assertAlmostEqual(metrics["max_rss_mb"], 40960.0)
+
 
 if __name__ == "__main__":
     unittest.main()
