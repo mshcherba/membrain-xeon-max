@@ -2,6 +2,7 @@
   "environment": {
     "OMP_NUM_THREADS": "32",
     "KMP_AFFINITY": "granularity=fine,compact,1,0",
-    "MEMBRAIN_CLONE_DEPTH": "4"
+    "MEMBRAIN_CLONE_DEPTH": "4",
+    "LD_LIBRARY_PATH": "/opt/intel/oneapi/mkl/2026.1/lib:/opt/intel/oneapi/umf/1.1/lib:/opt/intel/oneapi/tbb/2023.1/lib:/opt/intel/oneapi/compiler/2026.1/lib:/opt/intel/oneapi/mpi/2021.18/lib:/users/maksym/membrain-xeon-max/build/runtime"
   }
 }
