@@ -34,7 +34,7 @@ def run_pebs_profiling(cmd, runtime_lib, sites_file, output_file, sample_period=
     env["MEMBRAIN_SAMPLE_PERIOD"] = str(sample_period)
     env["MEMBRAIN_SITES_FILE"] = os.path.abspath(sites_file)
     env["MEMBRAIN_OUTPUT_PROFILE"] = os.path.abspath(output_file)
-    env["MEMBRAIN_VERBOSE"] = "1"
+    env["MEMBRAIN_VERBOSE"] = env.get("MEMBRAIN_VERBOSE", "0")
 
     print(f"[PEBS Profiler] Launching target command with in-process PEBS buffers (sample period={sample_period}): {' '.join(cmd)}", flush=True)
     start_time = time.time()
