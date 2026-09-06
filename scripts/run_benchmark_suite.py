@@ -526,31 +526,17 @@ class BenchmarkSuiteRunner:
                     current_cap_mb = target_cap
 
                 fom_runs = []
-                time_runs = []
-                run_logs = []
 
                 for r in range(1, self.repeats + 1):
                     run_res = self.run_single_iteration(exp, r, self.repeats)
-                    if run_res:
-                        if "fom" in run_res:
-                            fom_runs.append(run_res["fom"])
-                        if "elapsed_sec" in run_res:
-                            time_runs.append(run_res["elapsed_sec"])
-                        run_logs.append(run_res["log_file"])
+                    if run_res and "fom" in run_res:
+                        fom_runs.append(run_res["fom"])
 
                 fom_stats = compute_statistics(fom_runs)
-                time_stats = compute_statistics(time_runs)
 
                 exp_result = {
                     "config": exp,
-                    "fom_stats": fom_stats,
-                    "time_stats": time_stats,
-                    "raw_runs": {
-                        "fom": fom_runs,
-                        "elapsed_sec": time_runs,
-                        "logs": run_logs
-                    },
-                    "timestamp": datetime.now().isoformat()
+                    "fom_stats": fom_stats
                 }
                 results.append(exp_result)
 
@@ -570,32 +556,41 @@ class BenchmarkSuiteRunner:
                 hbm_baseline_fom = r["fom_stats"]["mean"]
                 break
 
-        # Compute relative FOM and speedup for all configurations
+        # Compute relative FOM speedup factor for all configurations
         for r in results:
             mean_fom = r["fom_stats"]["mean"]
             if hbm_baseline_fom and hbm_baseline_fom > 0 and mean_fom > 0:
-                rel_pct = (mean_fom / hbm_baseline_fom) * 100.0
                 speedup_factor = mean_fom / hbm_baseline_fom
             else:
-                rel_pct = 100.0 if r["config"].get("is_baseline") else 0.0
                 speedup_factor = 1.0 if r["config"].get("is_baseline") else 0.0
 
-            r["relative_to_hbm_baseline"] = {
-                "relative_fom_pct": rel_pct,
-                "speedup_factor": speedup_factor
+            r["relative_to_hbm_baseline"] = speedup_factor
+
+        # Prepare streamlined JSON results matching the exact minimal schema
+        json_results = []
+        for r in results:
+            cfg = r["config"]
+            fs = r["fom_stats"]
+            clean_fs = {k: v for k, v in fs.items() if k != "n"}
+            clean_cfg = {
+                "name": cfg["name"],
+                "capacity_pct": cfg["capacity_pct"],
+                "capacity_mb": cfg["capacity_mb"]
             }
+            json_results.append({
+                "config": clean_cfg,
+                "fom_stats": clean_fs,
+                "relative_to_hbm_baseline": r["relative_to_hbm_baseline"]
+            })
 
         # Save JSON results
         json_path = os.path.join(self.results_dir, "benchmark_results.json")
         with open(json_path, "w") as f:
             json.dump({
                 "benchmark": self.benchmark_name,
-                "date": datetime.now().isoformat(),
                 "peak_rss_kb": peak_rss_kb,
-                "repeats": self.repeats,
-                "hbm_baseline_fom_mean": hbm_baseline_fom,
                 "fom_unit": self.fom_unit,
-                "results": results
+                "results": json_results
             }, f, indent=2)
 
         # Save Markdown Summary
@@ -611,13 +606,12 @@ class BenchmarkSuiteRunner:
             f.write(f"- **Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
             f.write("## 1. Overall FOM & Performance Comparison\n\n")
-            f.write(f"| Configuration | HBM Cap (% / MB) | Mean FOM ({self.fom_unit}) | StdDev | 95% Margin of Error | Relative FOM vs HBM | Mean Time (s) |\n")
-            f.write("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
+            f.write(f"| Configuration | HBM Cap (% / MB) | Mean FOM ({self.fom_unit}) | StdDev | 95% Margin of Error | Relative FOM vs HBM |\n")
+            f.write("| :--- | :--- | :--- | :--- | :--- | :--- |\n")
 
             for r in results:
                 cfg = r["config"]
                 fs = r["fom_stats"]
-                ts = r["time_stats"]
                 rel = r["relative_to_hbm_baseline"]
 
                 cap_str = f"{cfg['capacity_pct']}%" if cfg['capacity_key'] != "unconstrained" else "Unconstrained"
@@ -627,10 +621,9 @@ class BenchmarkSuiteRunner:
                 mean_fom_str = f"**{fs['mean']:.2f}**"
                 std_str = f"±{fs['stdev']:.2f}" if fs['n'] > 1 else "-"
                 moe_str = f"±{fs['ci_margin']:.2f} (±{fs['ci_margin_pct']:.1f}%)" if fs['n'] > 1 else "-"
-                rel_fom_str = f"**{rel['relative_fom_pct']:.1f}%** ({rel['speedup_factor']:.2f}x)" if hbm_baseline_fom else "-"
-                mean_time_str = f"{ts['mean']:.2f}s" if ts['mean'] > 0 else "-"
+                rel_fom_str = f"**{rel * 100:.1f}%** ({rel:.2f}x)" if hbm_baseline_fom else "-"
 
-                f.write(f"| **{cfg['name']}** | {cap_str} | {mean_fom_str} | {std_str} | {moe_str} | {rel_fom_str} | {mean_time_str} |\n")
+                f.write(f"| **{cfg['name']}** | {cap_str} | {mean_fom_str} | {std_str} | {moe_str} | {rel_fom_str} |\n")
 
             f.write("\n## 2. Capacity-by-Capacity Breakdown\n\n")
             for pct in self.capacities:
@@ -640,34 +633,32 @@ class BenchmarkSuiteRunner:
                     continue
                 cap_mb = cap_res[0]["config"]["capacity_mb"]
                 f.write(f"### Capacity Tier {pct}% ({cap_mb:.1f} MB HBM Budget)\n\n")
-                f.write(f"| Strategy | Mean FOM ({self.fom_unit}) | 95% Confidence Interval | Relative FOM vs HBM | Mean Time (s) |\n")
-                f.write("| :--- | :--- | :--- | :--- | :--- |\n")
+                f.write(f"| Strategy | Mean FOM ({self.fom_unit}) | 95% Confidence Interval | Relative FOM vs HBM |\n")
+                f.write("| :--- | :--- | :--- | :--- |\n")
 
                 for r in cap_res:
                     fs = r["fom_stats"]
-                    ts = r["time_stats"]
                     rel = r["relative_to_hbm_baseline"]
                     strat_name = r["config"]["strategy"].upper()
                     ci_str = f"[{fs['ci_lower']:.2f}, {fs['ci_upper']:.2f}]" if fs['n'] > 1 else f"{fs['mean']:.2f}"
-                    rel_str = f"**{rel['relative_fom_pct']:.1f}%** ({rel['speedup_factor']:.2f}x)"
+                    rel_str = f"**{rel * 100:.1f}%** ({rel:.2f}x)"
 
-                    f.write(f"| **{strat_name}** | **{fs['mean']:.2f}** | {ci_str} | {rel_str} | {ts['mean']:.2f}s |\n")
+                    f.write(f"| **{strat_name}** | **{fs['mean']:.2f}** | {ci_str} | {rel_str} |\n")
                 f.write("\n")
 
         # Terminal Summary Table
         print("\n" + "=" * 100)
         print(" MEMBRAIN BENCHMARK RESULTS SUMMARY (Baseline: HBM-only)")
         print("=" * 100)
-        print(f"{'Configuration':<35} | {'Mean FOM (' + self.fom_unit + ')':<18} | {'95% MoE':<16} | {'Rel vs HBM':<12} | {'Mean Time':<10}")
+        print(f"{'Configuration':<35} | {'Mean FOM (' + self.fom_unit + ')':<18} | {'95% MoE':<16} | {'Rel vs HBM':<12}")
         print("-" * 100)
         for r in results:
             cfg = r["config"]
             fs = r["fom_stats"]
-            ts = r["time_stats"]
             rel = r["relative_to_hbm_baseline"]
             moe = f"±{fs['ci_margin_pct']:.1f}%" if fs['n'] > 1 else "-"
-            rel_str = f"{rel['relative_fom_pct']:.1f}% ({rel['speedup_factor']:.2f}x)" if hbm_baseline_fom else "-"
-            print(f"{cfg['name']:<35} | {fs['mean']:>14.2f}     | {moe:>14} | {rel_str:>12} | {ts['mean']:>8.2f}s")
+            rel_str = f"{rel * 100:.1f}% ({rel:.2f}x)" if hbm_baseline_fom else "-"
+            print(f"{cfg['name']:<35} | {fs['mean']:>14.2f}     | {moe:>14} | {rel_str:>12}")
         print("=" * 100)
         print(f"\n[Summary] Results successfully written to:\n  - JSON:     {json_path}\n  - Markdown: {md_path}\n")
 
