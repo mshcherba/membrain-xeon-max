@@ -30,9 +30,59 @@ PASS_SO="${MEMBRAIN_ROOT}/build/llvm-pass/MemBrainPass.so"
 RT_DIR="${MEMBRAIN_ROOT}/build/runtime"
 INC_DIR="${MEMBRAIN_ROOT}/runtime"
 
-# Check for Intel oneAPI environment
+CLANG_CXX="${CLANG_CXX:-clang++}"
+CLANG_C="$(echo "${CLANG_CXX}" | sed 's/++$//')"
+INTEL_MPI_CXX="${INTEL_MPI_CXX:-mpiicpx}"
+
+# Source Intel oneAPI environment if available
 if [ -f /opt/intel/oneapi/setvars.sh ]; then
     source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
+fi
+
+# Check for required tools and run dependency installer if missing
+if ! command -v cmake >/dev/null 2>&1 || \
+   ! command -v make >/dev/null 2>&1 || \
+   ! command -v ninja >/dev/null 2>&1 || \
+   ! command -v curl >/dev/null 2>&1 || \
+   ! command -v "${CLANG_CXX}" >/dev/null 2>&1 || \
+   ! command -v "${INTEL_MPI_CXX}" >/dev/null 2>&1 || \
+   [ ! -f /opt/intel/oneapi/setvars.sh ]; then
+    echo "[INFO] Missing required build dependencies. Running dependency installation script..."
+    if [ "$EUID" -eq 0 ]; then
+        bash "${MEMBRAIN_ROOT}/scripts/install_dependencies.sh"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo bash "${MEMBRAIN_ROOT}/scripts/install_dependencies.sh"
+    else
+        echo "[ERROR] Missing required dependencies. Please run as root or install first:" >&2
+        echo "       sudo bash ${MEMBRAIN_ROOT}/scripts/install_dependencies.sh" >&2
+        exit 1
+    fi
+
+    # Re-source oneAPI environment after installation
+    if [ -f /opt/intel/oneapi/setvars.sh ]; then
+        source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
+    fi
+fi
+
+if ! command -v "${INTEL_MPI_CXX}" >/dev/null 2>&1; then
+    echo "[ERROR] Intel MPI C++ compiler (${INTEL_MPI_CXX}) is not available in PATH." >&2
+    exit 1
+fi
+if ! command -v cmake >/dev/null 2>&1; then
+    echo "[ERROR] cmake is not available in PATH." >&2
+    exit 1
+fi
+if ! command -v ninja >/dev/null 2>&1; then
+    echo "[ERROR] ninja is not available in PATH." >&2
+    exit 1
+fi
+if ! command -v curl >/dev/null 2>&1; then
+    echo "[ERROR] curl is not available in PATH." >&2
+    exit 1
+fi
+if ! command -v "${CLANG_CXX}" >/dev/null 2>&1; then
+    echo "[ERROR] Clang C++ compiler (${CLANG_CXX}) is not available in PATH." >&2
+    exit 1
 fi
 
 # 1. Build MemBrain Runtime and LLVM Pass if missing
@@ -68,10 +118,6 @@ cd "${BUILD_DIR}"
 
 export MEMBRAIN_SITES_DIR="${BUILD_DIR}/sites"
 export MEMBRAIN_CLONE_DEPTH="${MEMBRAIN_CLONE_DEPTH:-4}"
-
-CLANG_CXX="${CLANG_CXX:-clang++}"
-CLANG_C="$(echo "${CLANG_CXX}" | sed 's/++$//')"
-INTEL_MPI_CXX="${INTEL_MPI_CXX:-mpiicpx}"
 
 echo "[INFO] Building QMCPACK with MemBrain LLVM Pass and Intel oneAPI Compiler (${INTEL_MPI_CXX})..."
 
