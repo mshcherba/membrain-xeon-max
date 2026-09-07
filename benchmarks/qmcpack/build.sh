@@ -6,7 +6,7 @@
 #   Automatically compiles the MemBrain LLVM Pass and Runtime library,
 #   clones QMCPACK if missing, and executes the build pipeline:
 #     Stage A: LLVM Pass Transformation & Compilation with Clang
-#              (clang++ -c -O3 -ffast-math -fopenmp -fpass-plugin=MemBrainPass.so)
+#              (clang++ -c -O3 -ffast-math -march=native -fopenmp -fpass-plugin=MemBrainPass.so)
 #              generating per-TU allocation sites in sites/
 #     Stage B: Intel oneAPI Integration (MKL, MPI, OpenMP) & libmembrain_rt.so
 #     Stage C: Merging Allocation Sites Metadata into allocation_sites.json
@@ -126,8 +126,8 @@ cmake -GNinja \
   -DCMAKE_C_COMPILER="${CLANG_C}" \
   -DCMAKE_CXX_COMPILER="${CLANG_CXX}" \
   -DCMAKE_CXX_LINK_EXECUTABLE="${INTEL_MPI_CXX} <FLAGS> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>" \
-  -DCMAKE_CXX_FLAGS="-O3 -ffast-math -fopenmp -fpass-plugin=${PASS_SO} -I${INC_DIR} -I/opt/intel/oneapi/mpi/latest/include" \
-  -DCMAKE_C_FLAGS="-O3 -ffast-math -fopenmp -fpass-plugin=${PASS_SO} -I${INC_DIR} -I/opt/intel/oneapi/mpi/latest/include" \
+  -DCMAKE_CXX_FLAGS="-O3 -ffast-math -march=native -fopenmp -fpass-plugin=${PASS_SO} -I${INC_DIR} -I/opt/intel/oneapi/mpi/latest/include" \
+  -DCMAKE_C_FLAGS="-O3 -ffast-math -march=native -fopenmp -fpass-plugin=${PASS_SO} -I${INC_DIR} -I/opt/intel/oneapi/mpi/latest/include" \
   -DCMAKE_EXE_LINKER_FLAGS="-L${RT_DIR} -lmembrain_rt -Wl,-rpath,${RT_DIR} -L/opt/intel/oneapi/umf/latest/lib -lumf -Wl,-rpath,/opt/intel/oneapi/umf/latest/lib -lnuma -lhwloc" \
   -DCMAKE_SHARED_LINKER_FLAGS="-L${RT_DIR} -lmembrain_rt -Wl,-rpath,${RT_DIR} -L/opt/intel/oneapi/umf/latest/lib -lumf -Wl,-rpath,/opt/intel/oneapi/umf/latest/lib -lnuma -lhwloc" \
   -DQMC_MPI=ON \
