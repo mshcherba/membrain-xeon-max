@@ -7,6 +7,8 @@
 #include <umf/pools/pool_scalable.h>
 #include <umf/providers/provider_os_memory.h>
 
+#include <fcntl.h>
+#include <unistd.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -149,6 +151,9 @@ void SitePoolManager::unregisterAllocation(void* ptr) {
 }
 
 void SitePoolManager::samplePeakRss() {
+    int pagemapFd = open("/proc/self/pagemap", O_RDONLY);
+    if (pagemapFd < 0) return;
+
     std::unordered_map<uint32_t, std::vector<AllocRegion>> regionsSnapshot;
     {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -161,11 +166,13 @@ void SitePoolManager::samplePeakRss() {
         size_t currentResidentBytes = 0;
 
         for (const auto& reg : entry.second) {
-            currentResidentBytes += pagemap::getResidentBytes(reg.start, reg.end);
+            currentResidentBytes += pagemap::getResidentBytes(pagemapFd, reg.start, reg.end);
         }
 
         sampledRss[siteId] = currentResidentBytes;
     }
+
+    close(pagemapFd);
 
     {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -177,6 +184,7 @@ void SitePoolManager::samplePeakRss() {
         }
     }
 }
+
 
 void SitePoolManager::drainPebsSamples() {
     if (!m_pebsSampler.isEnabled()) return;

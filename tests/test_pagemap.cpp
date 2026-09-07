@@ -3,10 +3,15 @@
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
 #include <sys/mman.h>
 
 int main() {
     std::cout << "[TestPagemap] Running PagemapUtil physical residence test...\n";
+
+    int pagemapFd = open("/proc/self/pagemap", O_RDONLY);
+    assert(pagemapFd >= 0);
 
     const size_t PAGE_SIZE = 4096;
     const size_t NUM_PAGES = 10;
@@ -20,7 +25,7 @@ int main() {
     uintptr_t endAddr = startAddr + ALLOC_SIZE;
 
     // Initially, anonymous uninitialized pages should not be resident (0 resident pages)
-    size_t initialResident = membrain::pagemap::getResidentPages(startAddr, endAddr);
+    size_t initialResident = membrain::pagemap::getResidentPages(pagemapFd, startAddr, endAddr);
     std::cout << "[TestPagemap] Initial resident pages before touch: " << initialResident << " / " << NUM_PAGES << "\n";
 
     // Touch 5 pages (force physical allocation in kernel page table)
@@ -29,7 +34,7 @@ int main() {
         charPtr[i * PAGE_SIZE] = static_cast<char>(i + 1);
     }
 
-    size_t touched5Resident = membrain::pagemap::getResidentPages(startAddr, endAddr);
+    size_t touched5Resident = membrain::pagemap::getResidentPages(pagemapFd, startAddr, endAddr);
     std::cout << "[TestPagemap] Resident pages after touching 5 pages: " << touched5Resident << " / " << NUM_PAGES << "\n";
     assert(touched5Resident >= 5);
 
@@ -38,14 +43,16 @@ int main() {
         charPtr[i * PAGE_SIZE] = static_cast<char>(i + 1);
     }
 
-    size_t touchedAllResident = membrain::pagemap::getResidentPages(startAddr, endAddr);
+    size_t touchedAllResident = membrain::pagemap::getResidentPages(pagemapFd, startAddr, endAddr);
     std::cout << "[TestPagemap] Resident pages after touching all 10 pages: " << touchedAllResident << " / " << NUM_PAGES << "\n";
     assert(touchedAllResident == NUM_PAGES);
 
-    size_t residentBytes = membrain::pagemap::getResidentBytes(startAddr, endAddr);
+    size_t residentBytes = membrain::pagemap::getResidentBytes(pagemapFd, startAddr, endAddr);
     assert(residentBytes == ALLOC_SIZE);
 
     munmap(ptr, ALLOC_SIZE);
+    close(pagemapFd);
     std::cout << "[TestPagemap] ALL PAGEMAP TESTS PASSED!\n";
     return 0;
 }
+
