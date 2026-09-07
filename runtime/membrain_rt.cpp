@@ -275,14 +275,30 @@ void *membrain_realloc(void *ptr, size_t size, uint32_t site_id) {
 
     auto& siteMgr = membrain::SitePoolManager::instance();
     void *newPtr = nullptr;
-
+    umf_memory_pool_handle_t targetPool = nullptr;
     if (siteMgr.isProfilingMode()) {
-        umf_memory_pool_handle_t sitePool = siteMgr.getOrCreateSitePool(site_id);
-        newPtr = sitePool ? umfPoolRealloc(sitePool, ptr, size) : nullptr;
+        targetPool = siteMgr.getOrCreateSitePool(site_id);
     } else {
         int targetNode = getTargetNode(site_id);
-        umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
+        targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
+    }
+
+    if (!targetPool) return nullptr;
+
+    umf_memory_pool_handle_t ownerPool = nullptr;
+    umfPoolByPtr(ptr, &ownerPool);
+
+    if (ownerPool == targetPool) {
         newPtr = umfPoolRealloc(targetPool, ptr, size);
+    } else {
+        newPtr = umfPoolMalloc(targetPool, size);
+        if (newPtr) {
+            size_t oldSize = 0;
+            if (ownerPool && umfPoolMallocUsableSize(ownerPool, ptr, &oldSize) == UMF_RESULT_SUCCESS) {
+                std::memcpy(newPtr, ptr, std::min(oldSize, size));
+            }
+            umfFree(ptr);
+        }
     }
 
     if (newPtr) {
