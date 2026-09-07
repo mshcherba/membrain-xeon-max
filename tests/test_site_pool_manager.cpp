@@ -21,7 +21,6 @@ int main() {
 
     void* ptr1 = umfPoolMalloc(pool1, size1);
     assert(ptr1 != nullptr);
-    manager.registerAllocation(1, ptr1, size1);
 
     // Touch first 5 pages of Site 1
     char* cptr1 = static_cast<char*>(ptr1);
@@ -36,7 +35,6 @@ int main() {
 
     void* ptr2 = umfPoolMalloc(pool2, size2);
     assert(ptr2 != nullptr);
-    manager.registerAllocation(2, ptr2, size2);
 
     // Touch all 20 pages of Site 2
     char* cptr2 = static_cast<char*>(ptr2);
@@ -68,8 +66,6 @@ int main() {
     std::remove("test_site_rss_profile.json");
 
     // Clean up
-    manager.unregisterAllocation(ptr1);
-    manager.unregisterAllocation(ptr2);
     umfFree(ptr1);
     umfFree(ptr2);
 

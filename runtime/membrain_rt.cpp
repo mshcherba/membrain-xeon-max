@@ -216,9 +216,6 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
     if (siteMgr.isProfilingMode()) {
         umf_memory_pool_handle_t sitePool = siteMgr.getOrCreateSitePool(site_id);
         ptr = sitePool ? umfPoolMalloc(sitePool, size) : nullptr;
-        if (ptr) {
-            siteMgr.registerAllocation(site_id, ptr, size);
-        }
     } else {
         int targetNode = getTargetNode(site_id);
         umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
@@ -232,10 +229,6 @@ void *membrain_alloc(size_t size, uint32_t site_id) {
 void membrain_free(void *ptr) {
     if (!ptr) return;
     if (is_umf_ptr(ptr)) {
-        auto& siteMgr = membrain::SitePoolManager::instance();
-        if (siteMgr.isProfilingMode()) {
-            siteMgr.unregisterAllocation(ptr);
-        }
         umfFree(ptr);
     } else {
         __libc_free(ptr);
@@ -286,12 +279,6 @@ void *membrain_realloc(void *ptr, size_t size, uint32_t site_id) {
     if (siteMgr.isProfilingMode()) {
         umf_memory_pool_handle_t sitePool = siteMgr.getOrCreateSitePool(site_id);
         newPtr = sitePool ? umfPoolRealloc(sitePool, ptr, size) : nullptr;
-        if (newPtr) {
-            if (newPtr != ptr) {
-                siteMgr.unregisterAllocation(ptr);
-            }
-            siteMgr.registerAllocation(site_id, newPtr, size);
-        }
     } else {
         int targetNode = getTargetNode(site_id);
         umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;
@@ -338,9 +325,6 @@ int membrain_posix_memalign(void **memptr, size_t alignment, size_t size, uint32
     if (siteMgr.isProfilingMode()) {
         umf_memory_pool_handle_t sitePool = siteMgr.getOrCreateSitePool(site_id);
         ptr = sitePool ? umfPoolAlignedMalloc(sitePool, size, alignment) : nullptr;
-        if (ptr) {
-            siteMgr.registerAllocation(site_id, ptr, size);
-        }
     } else {
         int targetNode = getTargetNode(site_id);
         umf_memory_pool_handle_t targetPool = (targetNode == membrain::topology::getHbmNode()) ? g_hbmPool : g_ddrPool;

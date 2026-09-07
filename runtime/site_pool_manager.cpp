@@ -40,7 +40,7 @@ SitePoolManager::~SitePoolManager() {
         exportProfileJson(m_profileOut, m_sitesFile);
     }
 
-    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(m_mutex);
     for (auto& entry : m_sitePools) {
         if (entry.second) {
             umfPoolDestroy(entry.second);
@@ -81,9 +81,18 @@ void SitePoolManager::initFromEnv() {
 umf_memory_pool_handle_t SitePoolManager::getOrCreateSitePool(uint32_t siteId) {
     if (!m_profilingMode) return nullptr;
 
-    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    // Fast-path thread-local 1-entry cache (0 locks, ~2 cycles)
+    static thread_local uint32_t t_lastSiteId = 0;
+    static thread_local umf_memory_pool_handle_t t_lastPool = nullptr;
+    if (siteId == t_lastSiteId && t_lastPool != nullptr) {
+        return t_lastPool;
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_sitePools.find(siteId);
     if (it != m_sitePools.end()) {
+        t_lastSiteId = siteId;
+        t_lastPool = it->second;
         return it->second;
     }
 
@@ -107,75 +116,79 @@ umf_memory_pool_handle_t SitePoolManager::getOrCreateSitePool(uint32_t siteId) {
     }
 
     if (pool) {
+        umfPoolSetTag(pool, reinterpret_cast<void*>(static_cast<uintptr_t>(siteId)), nullptr);
         m_sitePools[siteId] = pool;
+        t_lastSiteId = siteId;
+        t_lastPool = pool;
     }
     return pool;
 }
 
-void SitePoolManager::registerAllocation(uint32_t siteId, void* ptr, size_t size) {
-    if (!ptr || size == 0) return;
+void SitePoolManager::updateHeapBounds(uintptr_t start, uintptr_t end) noexcept {
+    uintptr_t curMin = m_minHeapAddr.load(std::memory_order_relaxed);
+    while (start < curMin && !m_minHeapAddr.compare_exchange_weak(curMin, start, std::memory_order_relaxed)) {}
 
-    std::lock_guard<std::recursive_mutex> lock(m_mutex);
-    uintptr_t start = reinterpret_cast<uintptr_t>(ptr);
-    uintptr_t end = start + size;
-
-    m_siteRegions[siteId].push_back({start, end, size});
-    m_historicalRegions[siteId].push_back({start, end, size});
-    m_ptrSiteMap[ptr] = {siteId, size};
-
-    if (m_peakRssBytes[siteId] == 0) {
-        m_peakRssBytes[siteId] = size;
-    }
+    uintptr_t curMax = m_maxHeapAddr.load(std::memory_order_relaxed);
+    while (end > curMax && !m_maxHeapAddr.compare_exchange_weak(curMax, end, std::memory_order_relaxed)) {}
 }
 
-void SitePoolManager::unregisterAllocation(void* ptr) {
-    if (!ptr) return;
-
-    std::lock_guard<std::recursive_mutex> lock(m_mutex);
-    auto it = m_ptrSiteMap.find(ptr);
-    if (it == m_ptrSiteMap.end()) return;
-
-    uint32_t siteId = it->second.first;
-    uintptr_t start = reinterpret_cast<uintptr_t>(ptr);
-    size_t size = it->second.second;
-    uintptr_t end = start + size;
-
-    auto& regions = m_siteRegions[siteId];
-    regions.erase(
-        std::remove_if(regions.begin(), regions.end(),
-                       [start](const AllocRegion& r) { return r.start == start; }),
-        regions.end()
-    );
-
-    m_ptrSiteMap.erase(it);
+uint32_t SitePoolManager::getSiteId(uintptr_t addr) const noexcept {
+    umf_memory_pool_handle_t pool = nullptr;
+    void* tag = nullptr;
+    if (umfPoolByPtr(reinterpret_cast<const void*>(addr), &pool) == UMF_RESULT_SUCCESS && pool &&
+        umfPoolGetTag(pool, &tag) == UMF_RESULT_SUCCESS) {
+        return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(tag));
+    }
+    return 0;
 }
 
 void SitePoolManager::samplePeakRss() {
     int pagemapFd = open("/proc/self/pagemap", O_RDONLY);
     if (pagemapFd < 0) return;
 
-    std::unordered_map<uint32_t, std::vector<AllocRegion>> regionsSnapshot;
-    {
-        std::lock_guard<std::recursive_mutex> lock(m_mutex);
-        regionsSnapshot = m_siteRegions;
+    FILE* mapsFile = fopen("/proc/self/maps", "r");
+    if (!mapsFile) {
+        close(pagemapFd);
+        return;
     }
 
     std::unordered_map<uint32_t, size_t> sampledRss;
-    for (const auto& entry : regionsSnapshot) {
-        uint32_t siteId = entry.first;
-        size_t currentResidentBytes = 0;
+    char line[512];
 
-        for (const auto& reg : entry.second) {
-            currentResidentBytes += pagemap::getResidentBytes(pagemapFd, reg.start, reg.end);
+    while (fgets(line, sizeof(line), mapsFile)) {
+        // Only inspect anonymous readable/writable mappings (rw-p) that are not files or stack/vdso
+        if (strstr(line, "rw-p") == nullptr) continue;
+        if (strchr(line, '/') != nullptr) continue;
+        if (strchr(line, '[') != nullptr) continue;
+
+        uintptr_t start = 0;
+        uintptr_t end = 0;
+        if (sscanf(line, "%lx-%lx", &start, &end) != 2) continue;
+        if (start >= end) continue;
+
+        constexpr uintptr_t STEP = 2 * 1024 * 1024;
+        uintptr_t curr = start;
+        while (curr < end) {
+            uint32_t siteId = getSiteId(curr);
+            uintptr_t next = curr + STEP;
+            while (next < end && getSiteId(next) == siteId) {
+                next += STEP;
+            }
+
+            uintptr_t rangeEnd = (next > end) ? end : next;
+            if (siteId != 0) {
+                updateHeapBounds(curr, rangeEnd);
+                sampledRss[siteId] += pagemap::getResidentBytes(pagemapFd, curr, rangeEnd);
+            }
+            curr = rangeEnd;
         }
-
-        sampledRss[siteId] = currentResidentBytes;
     }
 
+    fclose(mapsFile);
     close(pagemapFd);
 
-    {
-        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!sampledRss.empty()) {
+        std::lock_guard<std::mutex> lock(m_mutex);
         for (const auto& entry : sampledRss) {
             uint32_t siteId = entry.first;
             if (entry.second > m_peakRssBytes[siteId]) {
@@ -185,58 +198,29 @@ void SitePoolManager::samplePeakRss() {
     }
 }
 
-
 void SitePoolManager::drainPebsSamples() {
     if (!m_pebsSampler.isEnabled()) return;
-
-    struct FlatInterval {
-        uintptr_t start;
-        uintptr_t end;
-        uint32_t siteId;
-    };
-
-    std::vector<FlatInterval> flatRegions;
-    {
-        std::lock_guard<std::recursive_mutex> lock(m_mutex);
-        const auto& sourceMap = m_historicalRegions.empty() ? m_siteRegions : m_historicalRegions;
-        for (const auto& kv : sourceMap) {
-            for (const auto& reg : kv.second) {
-                flatRegions.push_back({reg.start, reg.end, kv.first});
-            }
-        }
-    }
-
-    if (flatRegions.empty()) return;
-
-    std::sort(flatRegions.begin(), flatRegions.end(), [](const FlatInterval& a, const FlatInterval& b) {
-        return a.start < b.start;
-    });
 
     std::unordered_map<uint32_t, uint64_t> batchCounts;
 
     m_pebsSampler.drainSamples([&](uint64_t addr) {
-        auto it = std::upper_bound(flatRegions.begin(), flatRegions.end(), addr,
-            [](uint64_t val, const FlatInterval& item) {
-                return val < item.start;
-            });
-        if (it != flatRegions.begin()) {
-            --it;
-            if (addr >= it->start && addr < it->end) {
-                batchCounts[it->siteId]++;
-            }
+        if (!isPossibleHeapAddr(addr)) return;
+        if (uint32_t siteId = getSiteId(addr)) {
+            batchCounts[siteId]++;
         }
     });
 
     if (!batchCounts.empty()) {
-        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        std::lock_guard<std::mutex> lock(m_mutex);
         for (const auto& kv : batchCounts) {
             m_accessCounts[kv.first] += kv.second;
         }
     }
 }
 
+
 size_t SitePoolManager::getPeakRssBytes(uint32_t siteId) const {
-    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_peakRssBytes.find(siteId);
     if (it != m_peakRssBytes.end()) {
         return it->second;
@@ -245,7 +229,7 @@ size_t SitePoolManager::getPeakRssBytes(uint32_t siteId) const {
 }
 
 uint64_t SitePoolManager::getAccessCount(uint32_t siteId) const {
-    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_accessCounts.find(siteId);
     if (it != m_accessCounts.end()) {
         return it->second;
@@ -256,7 +240,8 @@ uint64_t SitePoolManager::getAccessCount(uint32_t siteId) const {
 void SitePoolManager::exportProfileJson(const std::string& profileOut,
                                        const std::string& sitesJson,
                                        const std::string& rssProfileOut) {
-    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(m_mutex);
+
 
     // 1. Export site_rss_profile.json
     json jRssArray = json::array();
