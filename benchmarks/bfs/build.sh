@@ -27,25 +27,52 @@ MEMBRAIN_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BFS_DIR="${BFS_DIR:-$(cd "${MEMBRAIN_ROOT}/.." && pwd)/Graph500-BFS}"
 MEMBRAIN_RT="${MEMBRAIN_ROOT}/build/runtime/libmembrain_rt.so"
 
-# Check for Intel compiler and run dependency installer if missing
-if ! command -v icpx >/dev/null 2>&1 && [ ! -f /opt/intel/oneapi/setvars.sh ]; then
-    if [ "$EUID" -eq 0 ]; then
-        echo "[INFO] Intel oneAPI compiler not found. Running dependency installation script..."
-        bash "${MEMBRAIN_ROOT}/scripts/install_dependencies.sh"
-    else
-        echo "[ERROR] Intel oneAPI compiler not found. Please install dependencies first:"
-        echo "       sudo bash ${MEMBRAIN_ROOT}/scripts/install_dependencies.sh"
-        exit 1
-    fi
-fi
+CLANG_CXX="${CLANG_CXX:-clang++}"
+INTEL_MPI_CXX="${INTEL_MPI_CXX:-mpiicpx}"
 
-# Source Intel oneAPI environment if setvars.sh exists
+# Source Intel oneAPI environment if available
 if [ -f /opt/intel/oneapi/setvars.sh ]; then
     source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
 fi
 
+# Check for required tools and run dependency installer if missing
+if ! command -v cmake >/dev/null 2>&1 || \
+   ! command -v make >/dev/null 2>&1 || \
+   ! command -v "${CLANG_CXX}" >/dev/null 2>&1 || \
+   ! command -v icpx >/dev/null 2>&1 || \
+   ! command -v "${INTEL_MPI_CXX}" >/dev/null 2>&1 || \
+   [ ! -f /opt/intel/oneapi/setvars.sh ]; then
+    echo "[INFO] Missing required build dependencies. Running dependency installation script..."
+    if [ "$EUID" -eq 0 ]; then
+        bash "${MEMBRAIN_ROOT}/scripts/install_dependencies.sh"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo bash "${MEMBRAIN_ROOT}/scripts/install_dependencies.sh"
+    else
+        echo "[ERROR] Missing required dependencies. Please run as root or install first:" >&2
+        echo "       sudo bash ${MEMBRAIN_ROOT}/scripts/install_dependencies.sh" >&2
+        exit 1
+    fi
+
+    # Re-source oneAPI environment after installation
+    if [ -f /opt/intel/oneapi/setvars.sh ]; then
+        source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
+    fi
+fi
+
 if ! command -v icpx >/dev/null 2>&1; then
-    echo "[ERROR] Intel C++ compiler (icpx) is not available in PATH."
+    echo "[ERROR] Intel C++ compiler (icpx) is not available in PATH." >&2
+    exit 1
+fi
+if ! command -v "${INTEL_MPI_CXX}" >/dev/null 2>&1; then
+    echo "[ERROR] Intel MPI C++ compiler (${INTEL_MPI_CXX}) is not available in PATH." >&2
+    exit 1
+fi
+if ! command -v cmake >/dev/null 2>&1; then
+    echo "[ERROR] cmake is not available in PATH." >&2
+    exit 1
+fi
+if ! command -v "${CLANG_CXX}" >/dev/null 2>&1; then
+    echo "[ERROR] Clang C++ compiler (${CLANG_CXX}) is not available in PATH." >&2
     exit 1
 fi
 
