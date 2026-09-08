@@ -37,9 +37,16 @@ SitePoolManager::~SitePoolManager() {
         drainPebsSamples();
         std::cout << "[MemBrainRT] Total PEBS hardware samples captured: " 
                   << m_pebsSampler.getTotalSamples() << "\n";
-        exportProfileJson(m_profileOut, m_sitesFile);
+        try {
+            exportProfileJson(m_profileOut, m_sitesFile);
+        } catch (const std::exception& e) {
+            std::cerr << "[MemBrainRT] EXCEPTION in exportProfileJson: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "[MemBrainRT] UNKNOWN EXCEPTION in exportProfileJson\n";
+        }
     }
 
+    std::cout << "[MemBrainRT] Finalizing " << m_sitePools.size() << " allocation site pools...\n";
     std::lock_guard<std::mutex> lock(m_mutex);
     for (auto& entry : m_sitePools) {
         if (entry.second) {
@@ -47,6 +54,7 @@ SitePoolManager::~SitePoolManager() {
         }
     }
     m_sitePools.clear();
+    std::cout << "[MemBrainRT] Shutdown complete.\n";
 }
 
 void SitePoolManager::initFromEnv() {
@@ -242,7 +250,6 @@ void SitePoolManager::exportProfileJson(const std::string& profileOut,
                                        const std::string& rssProfileOut) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
-
     // 1. Export site_rss_profile.json
     json jRssArray = json::array();
     for (const auto& entry : m_sitePools) {
@@ -266,18 +273,30 @@ void SitePoolManager::exportProfileJson(const std::string& profileOut,
 
     // 2. Load allocation sites metadata if available
     json sitesData = json::array();
-    std::ifstream sitesFile(sitesJson);
-    if (sitesFile.is_open()) {
-        try {
-            sitesFile >> sitesData;
-        } catch (...) {}
+    if (!sitesJson.empty()) {
+        std::cout << "[MemBrainRT] Reading allocation sites from '" << sitesJson << "'...\n";
+        std::ifstream sitesFile(sitesJson);
+        if (sitesFile.is_open()) {
+            try {
+                sitesFile >> sitesData;
+                std::cout << "[MemBrainRT] Successfully loaded " << sitesData.size() << " allocation sites.\n";
+            } catch (const std::exception& e) {
+                std::cerr << "[MemBrainRT] Warning: Failed to parse '" << sitesJson << "': " << e.what() << "\n";
+            } catch (...) {
+                std::cerr << "[MemBrainRT] Warning: Unknown exception parsing '" << sitesJson << "'.\n";
+            }
+        } else {
+            std::cerr << "[MemBrainRT] Warning: Could not open '" << sitesJson << "' for reading.\n";
+        }
     }
 
     json jProfile = json::array();
 
     if (sitesData.is_array() && !sitesData.empty()) {
         for (const auto& site : sitesData) {
-            uint32_t siteId = site.value("site_id", 0);
+            uint32_t siteId = site.value<uint32_t>("site_id", 0);
+            if (siteId == 0) continue;
+
             size_t rssBytes = 0;
             auto rssIt = m_peakRssBytes.find(siteId);
             if (rssIt != m_peakRssBytes.end()) {
@@ -338,6 +357,8 @@ void SitePoolManager::exportProfileJson(const std::string& profileOut,
         profFile << jProfile.dump(2) << "\n";
         std::cout << "[MemBrainRT] Exported PEBS profile data for " 
                   << jProfile.size() << " allocation sites to '" << profileOut << "'.\n";
+    } else {
+        std::cerr << "[MemBrainRT] ERROR: Could not open profile output file '" << profileOut << "' for writing!\n";
     }
 }
 
