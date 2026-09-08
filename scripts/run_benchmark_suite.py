@@ -108,12 +108,13 @@ def drop_system_caches():
 
 class BenchmarkSuiteRunner:
     def __init__(self, benchmark_name, repeats=5, custom_args=None,
-                 capacities=None, strategies=None):
+                 capacities=None, strategies=None, no_tiering=False):
         self.benchmark_name = benchmark_name
         self.repeats = repeats
         self.custom_args = custom_args
         self.capacities = capacities or [12.5, 25.0, 50.0]
         self.strategies = strategies or ["first-touch", "knapsack", "hotset", "thermos"]
+        self.no_tiering = no_tiering
 
         self.bench_dir = os.path.join(BENCHMARKS_DIR, benchmark_name)
         if not os.path.exists(self.bench_dir):
@@ -405,6 +406,9 @@ class BenchmarkSuiteRunner:
             "is_baseline": True
         })
 
+        if self.no_tiering:
+            return experiments
+
         # 3. Constrained Capacity Tiers
         for pct in self.capacities:
             cap_key = f"{pct:g}pct"
@@ -518,7 +522,8 @@ class BenchmarkSuiteRunner:
         peak_rss_kb = self.measure_peak_rss()
 
         # 2. Generate guidance files
-        self.generate_guidance_files(peak_rss_kb)
+        if not self.no_tiering:
+            self.generate_guidance_files(peak_rss_kb)
 
         # 3. Build experiment matrix
         experiments = self.build_experiments(peak_rss_kb)
@@ -688,6 +693,7 @@ def main():
     parser.add_argument("--repeats", "-r", type=int, default=5, help="Number of repetitions per configuration (default: 5)")
     parser.add_argument("--capacities", "-c", nargs="+", type=float, default=[12.5, 25.0, 50.0], help="HBM capacity percentages (default: 12.5 25.0 50.0)")
     parser.add_argument("--strategies", "-s", nargs="+", default=["first-touch", "knapsack", "hotset", "thermos"], help="Strategies to run (default: first-touch knapsack hotset thermos)")
+    parser.add_argument("--no-tiering", action="store_true", help="Skip constrained capacity tiering runs")
     parser.add_argument("bench_args", nargs="*", help="Optional override arguments passed directly to the benchmark binary")
 
     args = parser.parse_args()
@@ -698,7 +704,8 @@ def main():
         repeats=args.repeats,
         custom_args=custom_args,
         capacities=args.capacities,
-        strategies=args.strategies
+        strategies=args.strategies,
+        no_tiering=args.no_tiering
     )
     runner.run_suite()
 
