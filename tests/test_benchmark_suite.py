@@ -57,15 +57,21 @@ class TestBenchmarkSuiteStats(unittest.TestCase):
         hbm_baseline = [e for e in exps if e["id"] == "unconstrained_hbm"][0]
         self.assertTrue(hbm_baseline["is_baseline"])
         self.assertEqual(hbm_baseline["numa_mode"], "membind_2")
+        self.assertFalse(hbm_baseline["use_runtime"])
+        self.assertIsNone(hbm_baseline["guidance_file"])
 
         # DDR check
         ddr_cfg = [e for e in exps if e["id"] == "unconstrained_ddr"][0]
         self.assertEqual(ddr_cfg["numa_mode"], "membind_0")
+        self.assertFalse(ddr_cfg["use_runtime"])
+        self.assertIsNone(ddr_cfg["guidance_file"])
 
         # First-touch check
         ft_cfg = [e for e in exps if e["id"] == "12.5pct_first_touch"][0]
         self.assertEqual(ft_cfg["strategy"], "first-touch")
         self.assertEqual(ft_cfg["numa_mode"], "preferred_2")
+        self.assertTrue(ft_cfg["use_runtime"])
+        self.assertIsNotNone(ft_cfg["guidance_file"])
 
     def test_bfs_config_loading(self):
         runner = BenchmarkSuiteRunner(

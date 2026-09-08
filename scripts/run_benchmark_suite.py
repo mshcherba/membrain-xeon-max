@@ -401,8 +401,8 @@ class BenchmarkSuiteRunner:
             "capacity_mb": "unconstrained",
             "strategy": "hbm_only",
             "numa_mode": "membind_2",
-            "use_runtime": True if os.path.exists(MEMBRAIN_RT) else False,
-            "guidance_file": hbm_only_guidance if os.path.exists(hbm_only_guidance) else None,
+            "use_runtime": False,
+            "guidance_file": None,
             "is_baseline": True
         })
 
@@ -420,7 +420,7 @@ class BenchmarkSuiteRunner:
                 
                 # First-touch reuses hbm_only.json guidance under constrained capacity
                 if strat_clean in ("first-touch", "first_touch", "hbm-constrained", "hbm"):
-                    guidance = hbm_only_guidance if os.path.exists(hbm_only_guidance) else None
+                    guidance = hbm_only_guidance
                     strategy_id = "first-touch"
                     strat_name = f"{pct:g}% HBM - First-Touch"
                 elif strat_clean == "knapsack":
@@ -448,7 +448,7 @@ class BenchmarkSuiteRunner:
                     "capacity_mb": cap_mb,
                     "strategy": strategy_id,
                     "numa_mode": "preferred_2",
-                    "use_runtime": True if os.path.exists(MEMBRAIN_RT) else False,
+                    "use_runtime": True,
                     "guidance_file": guidance,
                     "is_baseline": False
                 })
@@ -459,11 +459,19 @@ class BenchmarkSuiteRunner:
         """Execute a single repetition of an experiment configuration."""
         env = self._build_execution_env()
 
-        if exp["use_runtime"] and os.path.exists(MEMBRAIN_RT):
+        if exp["use_runtime"]:
+            if not os.path.exists(MEMBRAIN_RT):
+                raise FileNotFoundError(
+                    f"MemBrain runtime library not found at '{MEMBRAIN_RT}'. Build it before running tiered benchmarks."
+                )
             env["LD_PRELOAD"] = MEMBRAIN_RT
             env["MEMBRAIN_VERBOSE"] = "0"
             env["MEMBRAIN_TRACE"] = "0"
-            if exp["guidance_file"] and os.path.exists(exp["guidance_file"]):
+            if exp["guidance_file"]:
+                if not os.path.exists(exp["guidance_file"]):
+                    raise FileNotFoundError(
+                        f"Guidance file for experiment '{exp['id']}' not found at '{exp['guidance_file']}'."
+                    )
                 env["MEMBRAIN_GUIDANCE_PATH"] = exp["guidance_file"]
         else:
             env.pop("LD_PRELOAD", None)
