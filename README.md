@@ -50,12 +50,6 @@ benchmarks/
     run_suite.sh          — tiering suite runner shortcut
     guidance/             — generated placement guidance JSON files
     experiments/          — experiment logs and summary reports
-  qmcpack/                — QMCPACK 4.3.9 Quantum Monte Carlo pipeline
-    build.sh              — QMCPACK build script with MemBrain LLVM pass
-    config.json           — QMCPACK configuration and FOM metric patterns
-    profile.sh            — in-process PEBS profiling wrapper script
-    run_suite.sh          — tiering suite runner shortcut
-    NiO-fcc-S64.xml       — NiO S64 workload input definition
 
 scripts/                  — generic execution and system orchestration scripts
   run_benchmark_suite.py  — multi-benchmark tiering suite runner (orchestrates RSS measurement,
@@ -173,9 +167,6 @@ To run for other supported benchmarks:
 ```bash
 # Graph500 Breadth-First Search
 ./benchmarks/bfs/run_suite.sh
-
-# QMCPACK Quantum Monte Carlo
-./benchmarks/qmcpack/run_suite.sh
 ```
 
 ### 7. Results & Reports
