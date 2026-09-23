@@ -1,32 +1,8 @@
-# MemBrain: Automated Application Guidance for Hybrid Memory Systems
-
-**Codebase Author:** Maksym Shcherba (<maksym.shcherba@lnu.edu.ua>)  
-**Based on Original Research by:** M. B. Olson, T. Zhou, M. R. Jantz, K. A. Doshi, M. G. Lopez, and O. Hernandez (IEEE NAS 2018)
+# Adaptation and Evaluation of the MemBrain System for Profile-Guided Data Placement on Intel Xeon Max Processors
 
 MemBrain is an automated data placement framework for single-socket hybrid memory architectures (Intel Xeon Max Sapphire Rapids with **DDR5 on NUMA Node 0** and **HBM2e Flat Mode on NUMA Node 2**).
 
 > **Note:** This repository is an independent research implementation of the MemBrain framework tailored for single-socket Intel Xeon Max systems.
-
----
-
-## 📚 Citation & Reference
-
-If you use this codebase or reference the MemBrain concept, please cite the original paper:
-
-> M. B. Olson, T. Zhou, M. R. Jantz, K. A. Doshi, M. G. Lopez and O. Hernandez, "MemBrain: Automated Application Guidance for Hybrid Memory Systems," *2018 IEEE International Conference on Networking, Architecture and Storage (NAS)*, Chongqing, China, 2018, pp. 1-10, doi: 10.1109/NAS.2018.8515694.
-
-```bibtex
-@INPROCEEDINGS{8515694,
-  author={Olson, M. Ben and Zhou, Tong and Jantz, Michael R. and Doshi, Kshitij A. and Lopez, M. Graham and Hernandez, Oscar},
-  booktitle={2018 IEEE International Conference on Networking, Architecture and Storage (NAS)}, 
-  title={MemBrain: Automated Application Guidance for Hybrid Memory Systems}, 
-  year={2018},
-  volume={},
-  number={},
-  pages={1-10},
-  keywords={Bandwidth;Resource management;Memory management;Random access memory;Tools;Hardware;Runtime},
-  doi={10.1109/NAS.2018.8515694}}
-```
 
 ---
 
